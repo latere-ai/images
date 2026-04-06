@@ -96,6 +96,46 @@ run_in "$CODEX" 'test -d /workspace' \
 run_in "$CODEX" 'test -w /workspace' \
     && pass "workspace writable" || fail "/workspace not writable"
 
+# --- Smoke tests (requires credentials) ---
+# Set ENV_FILE to an env file with CLAUDE_CODE_OAUTH_TOKEN / OPENAI_API_KEY
+# to run real prompt tests. Skipped if ENV_FILE is not set.
+ENV_FILE="${ENV_FILE:-}"
+if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
+    section "smoke: claude (live prompt)"
+    out=$($RUNTIME run --rm \
+        --env-file "$ENV_FILE" \
+        -v claude-config:/home/claude/.claude \
+        "$CLAUDE" \
+        -p "who are you? answer in one sentence." \
+        --verbose --output-format stream-json 2>&1 | tail -1)
+    if echo "$out" | grep -q '"result"'; then
+        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
+        pass "claude replied: ${result:0:80}"
+    else
+        fail "claude did not produce a result"
+    fi
+
+    section "smoke: codex (live prompt)"
+    CODEX_AUTH_ARGS=""
+    if [ -d "${HOME}/.codex" ]; then
+        CODEX_AUTH_ARGS="-v ${HOME}/.codex:/home/codex/.codex:ro"
+    fi
+    out=$($RUNTIME run --rm \
+        --env-file "$ENV_FILE" \
+        $CODEX_AUTH_ARGS \
+        "$CODEX" \
+        -p "who are you? answer in one sentence." \
+        --verbose --output-format stream-json 2>&1 | tail -1)
+    if echo "$out" | grep -q '"result"'; then
+        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
+        pass "codex replied: ${result:0:80}"
+    else
+        fail "codex did not produce a result"
+    fi
+else
+    section "smoke tests skipped (set ENV_FILE to enable)"
+fi
+
 # --- Summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
