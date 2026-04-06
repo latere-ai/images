@@ -16,7 +16,7 @@ USER ${USERNAME}
 ENV NPM_CONFIG_PREFIX=/home/${USERNAME}/.npm-global
 ENV PATH=$PATH:/home/${USERNAME}/.npm-global/bin
 ENV GOPATH=/home/${USERNAME}/go
-ENV PATH=$PATH:/home/${USERNAME}/go/bin
+ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- RTK (token-optimized CLI proxy) ---
 ARG RTK_VERSION=0.34.2
