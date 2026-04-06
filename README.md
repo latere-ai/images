@@ -23,9 +23,10 @@ Image-specific additions:
 
 - **sandbox-claude**
   - [Claude Code CLI](https://github.com/anthropics/claude-code) (`@anthropic-ai/claude-code`)
-  - [RTK](https://github.com/rtk-ai/rtk) — token-optimized CLI proxy for reduced token usage
 - **sandbox-codex**
   - [Codex CLI](https://github.com/openai/codex) (`@openai/codex`)
+
+Both images also include [RTK](https://github.com/rtk-ai/rtk) — a token-optimized CLI proxy for reduced token usage.
 
 ## Using pre-built images
 
