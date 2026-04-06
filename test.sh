@@ -1,0 +1,106 @@
+#!/bin/bash
+#
+# Verify sandbox images are functional.
+# Usage: sh test.sh [tag]    (default: latest)
+#
+set -euo pipefail
+
+TAG="${1:-latest}"
+RUNTIME="${RUNTIME:-podman}"
+REGISTRY="${REGISTRY:-ghcr.io/latere-ai}"
+FAILURES=0
+
+pass() { printf "  \033[32mPASS\033[0m %s\n" "$1"; }
+fail() { printf "  \033[31mFAIL\033[0m %s\n" "$1"; FAILURES=$((FAILURES + 1)); }
+section() { printf "\n\033[1m%s\033[0m\n" "$1"; }
+
+run_in() {
+    local image="$1"; shift
+    $RUNTIME run --rm --entrypoint bash "$image" -c "$*" 2>&1
+}
+
+# --- Base image ---
+section "sandbox-base:${TAG}"
+BASE="${REGISTRY}/sandbox-base:${TAG}"
+
+out=$(run_in "$BASE" 'go version') && [[ "$out" == *"go1."* ]] \
+    && pass "go: $out" || fail "go not found"
+
+out=$(run_in "$BASE" 'node --version') && [[ "$out" == v* ]] \
+    && pass "node: $out" || fail "node not found"
+
+out=$(run_in "$BASE" 'python3 --version') && [[ "$out" == *"Python"* ]] \
+    && pass "python3: $out" || fail "python3 not found"
+
+for tool in gopls dlv goimports golangci-lint staticcheck gosec; do
+    run_in "$BASE" "which $tool" >/dev/null 2>&1 \
+        && pass "go tool: $tool" || fail "go tool missing: $tool"
+done
+
+out=$(run_in "$BASE" 'pwd') && [[ "$out" == "/workspace" ]] \
+    && pass "workdir: /workspace" || fail "workdir is $out, expected /workspace"
+
+# --- Claude image ---
+section "sandbox-claude:${TAG}"
+CLAUDE="${REGISTRY}/sandbox-claude:${TAG}"
+
+out=$(run_in "$CLAUDE" 'whoami') && [[ "$out" == "claude" ]] \
+    && pass "user: claude" || fail "user is $out, expected claude"
+
+out=$(run_in "$CLAUDE" 'echo $HOME') && [[ "$out" == "/home/claude" ]] \
+    && pass "home: /home/claude" || fail "home is $out"
+
+out=$(run_in "$CLAUDE" 'claude --version') && [[ "$out" == *"Claude Code"* ]] \
+    && pass "claude cli: $out" || fail "claude cli not found"
+
+out=$(run_in "$CLAUDE" 'rtk --version') && [[ "$out" == rtk* ]] \
+    && pass "rtk: $out" || fail "rtk not found"
+
+out=$(run_in "$CLAUDE" 'go version') \
+    && pass "go (inherited): $out" || fail "go not inherited from base"
+
+out=$(run_in "$CLAUDE" 'node --version') \
+    && pass "node (inherited): $out" || fail "node not inherited from base"
+
+run_in "$CLAUDE" 'test -d /workspace' \
+    && pass "workspace dir exists" || fail "/workspace missing"
+
+run_in "$CLAUDE" 'test -w /workspace' \
+    && pass "workspace writable" || fail "/workspace not writable"
+
+# --- Codex image ---
+section "sandbox-codex:${TAG}"
+CODEX="${REGISTRY}/sandbox-codex:${TAG}"
+
+out=$(run_in "$CODEX" 'whoami') && [[ "$out" == "codex" ]] \
+    && pass "user: codex" || fail "user is $out, expected codex"
+
+out=$(run_in "$CODEX" 'echo $HOME') && [[ "$out" == "/home/codex" ]] \
+    && pass "home: /home/codex" || fail "home is $out"
+
+out=$(run_in "$CODEX" 'codex --version') && [[ -n "$out" ]] \
+    && pass "codex cli: $out" || fail "codex cli not found"
+
+out=$(run_in "$CODEX" 'rtk --version') && [[ "$out" == rtk* ]] \
+    && pass "rtk: $out" || fail "rtk not found"
+
+out=$(run_in "$CODEX" 'go version') \
+    && pass "go (inherited): $out" || fail "go not inherited from base"
+
+out=$(run_in "$CODEX" 'node --version') \
+    && pass "node (inherited): $out" || fail "node not inherited from base"
+
+run_in "$CODEX" 'test -d /workspace' \
+    && pass "workspace dir exists" || fail "/workspace missing"
+
+run_in "$CODEX" 'test -w /workspace' \
+    && pass "workspace writable" || fail "/workspace not writable"
+
+# --- Summary ---
+echo
+if [ "$FAILURES" -eq 0 ]; then
+    printf "\033[32mAll checks passed.\033[0m\n"
+else
+    printf "\033[31m%d check(s) failed.\033[0m\n" "$FAILURES"
+    exit 1
+fi
