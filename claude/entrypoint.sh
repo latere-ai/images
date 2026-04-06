@@ -8,7 +8,7 @@ fi
 
 # Initialize RTK hooks in the mounted config volume
 if command -v rtk &>/dev/null; then
-    rtk init --global 2>/dev/null || true
+    rtk init --global --auto-patch 2>/dev/null || true
 fi
 
 CLAUDE_ARGS=(--dangerously-skip-permissions)
