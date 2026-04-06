@@ -27,9 +27,31 @@ Image-specific additions:
 - **sandbox-codex**
   - [Codex CLI](https://github.com/openai/codex) (`@openai/codex`)
 
-## Build
+## Using pre-built images
+
+Pre-built multi-arch images are published to GHCR on every release:
 
 ```bash
+# Pull the latest Claude sandbox
+podman pull ghcr.io/latere-ai/sandbox-claude:latest
+
+# Pull a specific version
+podman pull ghcr.io/latere-ai/sandbox-claude:v0.0.1
+
+# Same for Codex
+podman pull ghcr.io/latere-ai/sandbox-codex:latest
+```
+
+Replace `podman` with `docker` if using Docker.
+
+## Building locally
+
+If you want to customize the images or build from source:
+
+```bash
+git clone https://github.com/latere-ai/images.git
+cd images
+
 make            # Build both images
 make claude     # Build Claude sandbox only
 make codex      # Build Codex sandbox only
@@ -42,7 +64,9 @@ Override the container runtime (default: `podman`):
 make RUNTIME=docker
 ```
 
-## Entrypoint Contract
+Built images are tagged as both `sandbox-claude:latest` (local) and `ghcr.io/latere-ai/sandbox-claude:latest` (registry name). Wallfacer finds images by the local name, so local builds work without any configuration change.
+
+## Entrypoint contract
 
 Wallfacer expects the following from sandbox images:
 
