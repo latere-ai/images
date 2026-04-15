@@ -177,9 +177,13 @@ if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
     fi
 
     section "smoke: agents (codex dispatch)"
+    # Mount only auth.json read-only so codex can still write its own
+    # config.toml / sessions into the in-container ~/.codex/ without
+    # touching host state. The Dockerfile pre-creates ~/.codex so the
+    # runtime does not have to create the parent dir as root.
     AGENTS_CODEX_AUTH_ARGS=""
-    if [ -d "${HOME}/.codex" ]; then
-        AGENTS_CODEX_AUTH_ARGS="-v ${HOME}/.codex:/home/agent/.codex:ro"
+    if [ -f "${HOME}/.codex/auth.json" ]; then
+        AGENTS_CODEX_AUTH_ARGS="-v ${HOME}/.codex/auth.json:/home/agent/.codex/auth.json:ro"
     fi
     out=$($RUNTIME run --rm \
         --env-file "$ENV_FILE" \

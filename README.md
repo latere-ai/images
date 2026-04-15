@@ -166,18 +166,20 @@ docker run --rm -it \
   -p "explain this project"
 ```
 
-Run Codex inside the same image:
+Run Codex inside the same image. Mount *only* `auth.json` read-only so codex can still write its own `config.toml` and session files into the in-container `~/.codex/` without ever touching host state:
 
 ```bash
 docker run --rm -it \
   --env-file ~/.codex-sandbox.env \
   -e WALLFACER_AGENT=codex \
-  -v ~/.codex:/home/agent/.codex:ro \
+  -v ~/.codex/auth.json:/home/agent/.codex/auth.json:ro \
   -v "$(pwd)":/workspace/myproject \
   -w /workspace/myproject \
   ghcr.io/latere-ai/sandbox-agents:latest \
   -p "explain this project"
 ```
+
+⚠️  Do **not** bind-mount `~/.codex` as a whole directory (even read-only): codex 0.120+ needs a writable config directory, and a read-write mount of the whole dir would let the container overwrite your host's auth/config.
 
 ### Notes
 

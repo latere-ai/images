@@ -24,6 +24,14 @@ ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 # --- Agent CLIs ---
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
+# Pre-create the per-CLI config dirs so bind-mounting a single file
+# (e.g. ~/.codex/auth.json) does not require the runtime to create the
+# parent directory as root — that would leave it unwritable for the
+# `agent` user and break codex's attempts to persist config.toml /
+# sessions. Owned by the running user, perms match the CLIs' own defaults.
+RUN mkdir -p /home/${USERNAME}/.claude /home/${USERNAME}/.codex \
+    && chmod 700 /home/${USERNAME}/.claude /home/${USERNAME}/.codex
+
 # --- Entrypoints ---
 # entrypoint.sh is a dispatcher that exec's either claude-agent.sh or
 # codex-agent.sh based on the WALLFACER_AGENT env var.
