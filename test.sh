@@ -90,6 +90,40 @@ run_in "$CODEX" 'test -d /workspace' \
 run_in "$CODEX" 'test -w /workspace' \
     && pass "workspace writable" || fail "/workspace not writable"
 
+# --- Agents image (unified Claude + Codex) ---
+section "sandbox-agents:${TAG}"
+AGENTS="${REGISTRY}/sandbox-agents:${TAG}"
+
+out=$(run_in "$AGENTS" 'whoami') && [[ "$out" == "agent" ]] \
+    && pass "user: agent" || fail "user is $out, expected agent"
+
+out=$(run_in "$AGENTS" 'echo $HOME') && [[ "$out" == "/home/agent" ]] \
+    && pass "home: /home/agent" || fail "home is $out"
+
+out=$(run_in "$AGENTS" 'claude --version') && [[ "$out" == *"Claude Code"* ]] \
+    && pass "claude cli: $out" || fail "claude cli not found"
+
+out=$(run_in "$AGENTS" 'codex --version') && [[ -n "$out" ]] \
+    && pass "codex cli: $out" || fail "codex cli not found"
+
+out=$(run_in "$AGENTS" 'go version') \
+    && pass "go (inherited): $out" || fail "go not inherited from base"
+
+run_in "$AGENTS" 'test -d /workspace' \
+    && pass "workspace dir exists" || fail "/workspace missing"
+
+run_in "$AGENTS" 'test -w /workspace' \
+    && pass "workspace writable" || fail "/workspace not writable"
+
+# The dispatcher must reject unknown WALLFACER_AGENT values so wallfacer
+# can catch misconfiguration loudly instead of defaulting silently.
+out=$($RUNTIME run --rm -e WALLFACER_AGENT=bogus "$AGENTS" --help 2>&1 || true)
+if echo "$out" | grep -q "unknown WALLFACER_AGENT"; then
+    pass "dispatcher rejects unknown agent"
+else
+    fail "dispatcher did not reject WALLFACER_AGENT=bogus (got: ${out:0:80})"
+fi
+
 # --- Smoke tests (requires credentials) ---
 # Set ENV_FILE to an env file with CLAUDE_CODE_OAUTH_TOKEN / OPENAI_API_KEY
 # to run real prompt tests. Skipped if ENV_FILE is not set.
@@ -125,6 +159,40 @@ if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
         pass "codex replied: ${result:0:80}"
     else
         fail "codex did not produce a result"
+    fi
+
+    section "smoke: agents (claude dispatch)"
+    out=$($RUNTIME run --rm \
+        --env-file "$ENV_FILE" \
+        -e WALLFACER_AGENT=claude \
+        -v agents-claude-config:/home/agent/.claude \
+        "$AGENTS" \
+        -p "who are you? answer in one sentence." \
+        --verbose --output-format stream-json 2>&1 | tail -1)
+    if echo "$out" | grep -q '"result"'; then
+        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
+        pass "agents/claude replied: ${result:0:80}"
+    else
+        fail "agents/claude did not produce a result"
+    fi
+
+    section "smoke: agents (codex dispatch)"
+    AGENTS_CODEX_AUTH_ARGS=""
+    if [ -d "${HOME}/.codex" ]; then
+        AGENTS_CODEX_AUTH_ARGS="-v ${HOME}/.codex:/home/agent/.codex:ro"
+    fi
+    out=$($RUNTIME run --rm \
+        --env-file "$ENV_FILE" \
+        -e WALLFACER_AGENT=codex \
+        $AGENTS_CODEX_AUTH_ARGS \
+        "$AGENTS" \
+        -p "who are you? answer in one sentence." \
+        --verbose --output-format stream-json 2>&1 | tail -1)
+    if echo "$out" | grep -q '"result"'; then
+        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
+        pass "agents/codex replied: ${result:0:80}"
+    else
+        fail "agents/codex did not produce a result"
     fi
 else
     section "smoke tests skipped (set ENV_FILE to enable)"
