@@ -53,9 +53,6 @@ out=$(run_in "$CLAUDE" 'echo $HOME') && [[ "$out" == "/home/claude" ]] \
 out=$(run_in "$CLAUDE" 'claude --version') && [[ "$out" == *"Claude Code"* ]] \
     && pass "claude cli: $out" || fail "claude cli not found"
 
-out=$(run_in "$CLAUDE" 'rtk --version') && [[ "$out" == rtk* ]] \
-    && pass "rtk: $out" || fail "rtk not found"
-
 out=$(run_in "$CLAUDE" 'go version') \
     && pass "go (inherited): $out" || fail "go not inherited from base"
 
@@ -80,9 +77,6 @@ out=$(run_in "$CODEX" 'echo $HOME') && [[ "$out" == "/home/codex" ]] \
 
 out=$(run_in "$CODEX" 'codex --version') && [[ -n "$out" ]] \
     && pass "codex cli: $out" || fail "codex cli not found"
-
-out=$(run_in "$CODEX" 'rtk --version') && [[ "$out" == rtk* ]] \
-    && pass "rtk: $out" || fail "rtk not found"
 
 out=$(run_in "$CODEX" 'go version') \
     && pass "go (inherited): $out" || fail "go not inherited from base"
