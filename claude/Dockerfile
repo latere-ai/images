@@ -18,11 +18,6 @@ ENV PATH=$PATH:/home/${USERNAME}/.npm-global/bin
 ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
-# --- RTK (token-optimized CLI proxy) ---
-ARG RTK_VERSION=0.34.2
-RUN RTK_VERSION=${RTK_VERSION} \
-    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
-
 # --- Claude Code CLI ---
 RUN npm install -g @anthropic-ai/claude-code
 

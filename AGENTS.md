@@ -6,14 +6,14 @@ Instructions for AI agents working on this repository.
 
 Container images for [Wallfacer](https://github.com/changkun/wallfacer) agent sandboxes. Three images are built from this repo:
 
-- **sandbox-base**: shared base with OS packages, Go, Go tools, Node.js, Python, and RTK
+- **sandbox-base**: shared base with OS packages, Go, Go tools, Node.js, and Python
 - **sandbox-claude**: extends base with the Claude Code CLI
 - **sandbox-codex**: extends base with the OpenAI Codex CLI
 
 ## Structure
 
 ```
-base/Dockerfile         Shared base image (Ubuntu 24.04, Go, Node.js, Go tools, RTK)
+base/Dockerfile         Shared base image (Ubuntu 24.04, Go, Node.js, Go tools)
 claude/Dockerfile       Claude Code sandbox (FROM base)
 claude/entrypoint.sh    Claude Code entrypoint
 codex/Dockerfile        Codex sandbox (FROM base)
@@ -35,11 +35,9 @@ make RUNTIME=docker  # Use Docker instead of Podman
 
 ## Conventions
 
-- All shared system-level dependencies (OS packages, Go, Go tools, Node.js) go in `base/Dockerfile`. User creation, RTK, and CLI installs go in each child Dockerfile.
+- All shared system-level dependencies (OS packages, Go, Go tools, Node.js) go in `base/Dockerfile`. User creation and CLI installs go in each child Dockerfile.
 - Each image has its own non-root user (UID 1000): `claude` for sandbox-claude, `codex` for sandbox-codex. Wallfacer hardcodes paths under `/home/claude/` and `/home/codex/` for volume mounts, so these usernames must not change.
 - Major Go tools are pinned to specific versions via build ARGs. Utility tools use `@latest`.
-- RTK version is pinned via the `RTK_VERSION` build ARG.
-- Entrypoints handle RTK init at runtime (not build time) because the config volume is mounted at container start.
 - The codex entrypoint translates Claude Code-style flags to Codex CLI format and emits a Claude Code-compatible JSON envelope.
 
 ## Entrypoint Contract

@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Initialize RTK hooks in the mounted config volume
-if command -v rtk &>/dev/null; then
-    rtk init -g --codex 2>/dev/null || true
-fi
-
 # Parse wallfacer-style arguments and translate to codex CLI format.
 # Wallfacer passes Claude Code-style flags:
 #   -p <prompt> --verbose --output-format <val> [--model <val>] [--resume <val>]

@@ -4,7 +4,7 @@ Container images for [Wallfacer](https://github.com/changkun/wallfacer) agent sa
 
 ## Images
 
-- **sandbox-base**: shared base image with OS packages, Go, Go tools, Node.js, Python, and RTK
+- **sandbox-base**: shared base image with OS packages, Go, Go tools, Node.js, and Python
   `ghcr.io/latere-ai/sandbox-base`
 - **sandbox-claude**: Claude Code CLI sandbox
   `ghcr.io/latere-ai/sandbox-claude`
@@ -20,7 +20,6 @@ The base image (Ubuntu 24.04, multi-arch amd64/arm64) provides:
 - **Node.js**: 22 LTS
 - **Python**: 3 with pip and venv
 - **Non-root user**: UID 1000, passwordless sudo
-- **[RTK](https://github.com/rtk-ai/rtk)**: token-optimized CLI proxy for reduced token usage
 
 Image-specific additions:
 
