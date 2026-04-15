@@ -139,11 +139,11 @@ Codex authenticates via an API key passed through an env file. If you have logge
      -p "explain this project"
    ```
 
-   Or, if you have `~/.codex/auth.json` from a prior `codex` login on the host, mount it read-only instead of using an env file:
+   Or, if you have `~/.codex/auth.json` from a prior `codex` login on the host, mount *just* that file read-only instead of using an env file. Codex 0.120+ needs a writable `~/.codex/` inside the container to persist `config.toml` and session state, so bind-mount the single credential file rather than the whole directory:
 
    ```bash
    docker run --rm -it \
-     -v ~/.codex:/home/codex/.codex:ro \
+     -v ~/.codex/auth.json:/home/codex/.codex/auth.json:ro \
      -v "$(pwd)":/workspace/myproject \
      -w /workspace/myproject \
      ghcr.io/latere-ai/sandbox-codex:latest \

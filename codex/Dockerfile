@@ -21,6 +21,12 @@ ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 # --- OpenAI Codex CLI ---
 RUN npm install -g @openai/codex
 
+# Pre-create ~/.codex so callers can bind-mount a single file
+# (e.g. ~/.codex/auth.json:/home/codex/.codex/auth.json:ro) without
+# the runtime creating the parent dir as root. Codex 0.120+ writes
+# config.toml and session state into this dir at startup.
+RUN mkdir -p /home/${USERNAME}/.codex && chmod 700 /home/${USERNAME}/.codex
+
 # --- Entrypoint ---
 COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

@@ -144,9 +144,13 @@ if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
     fi
 
     section "smoke: codex (live prompt)"
+    # Mount only auth.json read-only; codex 0.120+ writes config.toml
+    # and sessions into ~/.codex at startup, so the directory itself
+    # must be writable inside the container. A read-only mount of the
+    # whole dir fails with "failed to persist config.toml".
     CODEX_AUTH_ARGS=""
-    if [ -d "${HOME}/.codex" ]; then
-        CODEX_AUTH_ARGS="-v ${HOME}/.codex:/home/codex/.codex:ro"
+    if [ -f "${HOME}/.codex/auth.json" ]; then
+        CODEX_AUTH_ARGS="-v ${HOME}/.codex/auth.json:/home/codex/.codex/auth.json:ro"
     fi
     out=$($RUNTIME run --rm \
         --env-file "$ENV_FILE" \
