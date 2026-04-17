@@ -22,7 +22,11 @@ ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- Agent CLIs ---
-RUN npm install -g @anthropic-ai/claude-code @openai/codex
+ARG CLAUDE_CODE_VERSION=2.1.112
+ARG CODEX_VERSION=0.121.0
+RUN npm install -g \
+      @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+      @openai/codex@${CODEX_VERSION}
 
 # Pre-create the per-CLI config dirs so bind-mounting a single file
 # (e.g. ~/.codex/auth.json) does not require the runtime to create the
