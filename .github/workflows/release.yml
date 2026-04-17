@@ -37,8 +37,72 @@ permissions:
   packages: write
 
 jobs:
+  # Detect which image dirs changed on branch pushes so we can skip
+  # matrix entries whose inputs are unchanged. Release-producing events
+  # (tag push, release, dispatch) always build everything.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      base: ${{ steps.compute.outputs.base }}
+      sandboxes: ${{ steps.compute.outputs.sandboxes }}
+      any_sandbox: ${{ steps.compute.outputs.any_sandbox }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+        with:
+          filters: |
+            base:
+              - 'base/**'
+            claude:
+              - 'claude/**'
+            codex:
+              - 'codex/**'
+            agents:
+              - 'agents/**'
+      - id: compute
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BASE: ${{ steps.filter.outputs.base }}
+          CLAUDE: ${{ steps.filter.outputs.claude }}
+          CODEX: ${{ steps.filter.outputs.codex }}
+          AGENTS: ${{ steps.filter.outputs.agents }}
+        run: |
+          set -e
+          if [[ "$EVENT" == "push" && "$REF" == refs/heads/* ]]; then
+            base=$BASE; claude=$CLAUDE; codex=$CODEX; agents=$AGENTS
+          else
+            base=true; claude=true; codex=true; agents=true
+          fi
+          # Base change propagates to all sandboxes (they FROM it).
+          if [[ "$base" == "true" ]]; then
+            claude=true; codex=true; agents=true
+          fi
+          entries=()
+          [[ "$claude" == "true" ]] && entries+=('{"name":"sandbox-claude","context":"claude"}')
+          [[ "$codex"  == "true" ]] && entries+=('{"name":"sandbox-codex","context":"codex"}')
+          [[ "$agents" == "true" ]] && entries+=('{"name":"sandbox-agents","context":"agents"}')
+          joined=$(IFS=,; echo "${entries[*]}")
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "sandboxes={\"image\":[${joined}]}" >> "$GITHUB_OUTPUT"
+          if [[ ${#entries[@]} -gt 0 ]]; then
+            echo "any_sandbox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_sandbox=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-base:
-    if: github.event_name != 'workflow_dispatch' || inputs.rebuild_base
+    needs: changes
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.rebuild_base)
+      && (
+        github.event_name != 'push'
+        || !startsWith(github.ref, 'refs/heads/')
+        || needs.changes.outputs.base == 'true'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -74,17 +138,14 @@ jobs:
           cache-to: type=gha,mode=max,scope=sandbox-base
 
   build-sandboxes:
-    needs: build-base
-    if: always() && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
+    needs: [changes, build-base]
+    if: >-
+      always()
+      && needs.changes.outputs.any_sandbox == 'true'
+      && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
     strategy:
-      matrix:
-        image:
-          - name: sandbox-claude
-            context: claude
-          - name: sandbox-codex
-            context: codex
-          - name: sandbox-agents
-            context: agents
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.sandboxes) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
