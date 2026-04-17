@@ -2,6 +2,24 @@ name: Release Sandbox Images
 
 on:
   workflow_dispatch:
+    inputs:
+      claude_code_version:
+        description: "Pin @anthropic-ai/claude-code (e.g. 2.1.112). Empty = use Dockerfile default."
+        required: false
+        type: string
+      codex_version:
+        description: "Pin @openai/codex (e.g. 0.121.0). Empty = use Dockerfile default."
+        required: false
+        type: string
+      image_tag:
+        description: "Extra tag to publish (e.g. v2.1.112-rebuild). Empty = use semver/latest only."
+        required: false
+        type: string
+      rebuild_base:
+        description: "Also rebuild the base image."
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -14,6 +32,7 @@ permissions:
 
 jobs:
   build-base:
+    if: github.event_name != 'workflow_dispatch' || inputs.rebuild_base
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +69,7 @@ jobs:
 
   build-sandboxes:
     needs: build-base
+    if: always() && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
     strategy:
       matrix:
         image:
@@ -79,6 +99,7 @@ jobs:
             type=semver,pattern=v{{version}}
             type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest
+            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -90,5 +111,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/sandbox-base:latest
+            ${{ inputs.claude_code_version != '' && format('CLAUDE_CODE_VERSION={0}', inputs.claude_code_version) || '' }}
+            ${{ inputs.codex_version != '' && format('CODEX_VERSION={0}', inputs.codex_version) || '' }}
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
