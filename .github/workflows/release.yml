@@ -21,10 +21,16 @@ on:
         type: boolean
         default: false
   push:
+    branches:
+      - main
     tags:
       - "v*"
   release:
     types: [published]
+
+# Publish to GHCR only on release-producing events (tag push, GitHub release,
+# or manual dispatch). Pushes to main run the same build matrix as a CI
+# smoke check but do not push the resulting images.
 
 permissions:
   contents: read
@@ -61,7 +67,7 @@ jobs:
         with:
           context: base
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=sandbox-base
@@ -108,7 +114,7 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
