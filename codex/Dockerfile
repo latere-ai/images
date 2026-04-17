@@ -19,7 +19,8 @@ ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- OpenAI Codex CLI ---
-RUN npm install -g @openai/codex
+ARG CODEX_VERSION=0.121.0
+RUN npm install -g @openai/codex@${CODEX_VERSION}
 
 # --- Entrypoint ---
 COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh /usr/local/bin/entrypoint.sh

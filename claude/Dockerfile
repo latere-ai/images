@@ -19,7 +19,8 @@ ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- Claude Code CLI ---
-RUN npm install -g @anthropic-ai/claude-code
+ARG CLAUDE_CODE_VERSION=2.1.112
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 # --- Entrypoint ---
 COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh /usr/local/bin/entrypoint.sh
