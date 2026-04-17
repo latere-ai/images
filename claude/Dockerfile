@@ -22,6 +22,10 @@ ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 ARG CLAUDE_CODE_VERSION=2.1.112
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
+# Pre-create ~/.claude so callers can bind-mount a single credential
+# file without the runtime creating the parent dir as root.
+RUN mkdir -p /home/${USERNAME}/.claude && chmod 700 /home/${USERNAME}/.claude
+
 # --- Entrypoint ---
 COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

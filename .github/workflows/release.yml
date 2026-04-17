@@ -77,6 +77,8 @@ jobs:
             context: claude
           - name: sandbox-codex
             context: codex
+          - name: sandbox-agents
+            context: agents
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

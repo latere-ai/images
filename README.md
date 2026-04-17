@@ -10,6 +10,8 @@ Container images for [Wallfacer](https://github.com/changkun/wallfacer) agent sa
   `ghcr.io/latere-ai/sandbox-claude`
 - **sandbox-codex**: OpenAI Codex CLI sandbox
   `ghcr.io/latere-ai/sandbox-codex`
+- **sandbox-agents**: unified Claude Code + Codex sandbox; selects agent at runtime via `WALLFACER_AGENT`
+  `ghcr.io/latere-ai/sandbox-agents`
 
 ## What's inside
 
@@ -27,6 +29,9 @@ Image-specific additions:
   - [Claude Code CLI](https://github.com/anthropics/claude-code) (`@anthropic-ai/claude-code`)
 - **sandbox-codex**
   - [Codex CLI](https://github.com/openai/codex) (`@openai/codex`)
+- **sandbox-agents** (unified)
+  - Both CLIs installed side-by-side; user is `agent` (UID 1000) with `~/.claude/` and `~/.codex/` in the same `$HOME`
+  - Entrypoint dispatches on `WALLFACER_AGENT` (`claude` or `codex`; defaults to `claude`)
 
 ## Using pre-built images
 
@@ -51,10 +56,11 @@ Replace `podman` with `docker` if using Docker.
 git clone https://github.com/latere-ai/images.git
 cd images
 
-make            # Build all images (base, claude, codex)
+make            # Build all images (base, claude, codex, agents)
 make base       # Build base image only
 make claude     # Build Claude sandbox (builds base first)
 make codex      # Build Codex sandbox (builds base first)
+make agents     # Build unified Claude+Codex sandbox (builds base first)
 make clean      # Remove all images
 ```
 
@@ -133,16 +139,47 @@ Codex authenticates via an API key passed through an env file. If you have logge
      -p "explain this project"
    ```
 
-   Or, if you have `~/.codex/auth.json` from a prior `codex` login on the host, mount it read-only instead of using an env file:
+   Or, if you have `~/.codex/auth.json` from a prior `codex` login on the host, mount *just* that file read-only instead of using an env file. Codex 0.120+ needs a writable `~/.codex/` inside the container to persist `config.toml` and session state, so bind-mount the single credential file rather than the whole directory:
 
    ```bash
    docker run --rm -it \
-     -v ~/.codex:/home/codex/.codex:ro \
+     -v ~/.codex/auth.json:/home/codex/.codex/auth.json:ro \
      -v "$(pwd)":/workspace/myproject \
      -w /workspace/myproject \
      ghcr.io/latere-ai/sandbox-codex:latest \
      -p "explain this project"
    ```
+
+### Agents sandbox (unified)
+
+`sandbox-agents` ships both CLIs under a single `agent` user, with config directories at `/home/agent/.claude` and `/home/agent/.codex`. The entrypoint dispatches to one of them based on `WALLFACER_AGENT` (defaults to `claude`; `codex` also supported; any other value exits non-zero).
+
+Run Claude Code inside it:
+
+```bash
+docker run --rm -it \
+  --env-file ~/.claude-sandbox.env \
+  -v agents-config:/home/agent/.claude \
+  -v "$(pwd)":/workspace/myproject \
+  -w /workspace/myproject \
+  ghcr.io/latere-ai/sandbox-agents:latest \
+  -p "explain this project"
+```
+
+Run Codex inside the same image. Mount *only* `auth.json` read-only so codex can still write its own `config.toml` and session files into the in-container `~/.codex/` without ever touching host state:
+
+```bash
+docker run --rm -it \
+  --env-file ~/.codex-sandbox.env \
+  -e WALLFACER_AGENT=codex \
+  -v ~/.codex/auth.json:/home/agent/.codex/auth.json:ro \
+  -v "$(pwd)":/workspace/myproject \
+  -w /workspace/myproject \
+  ghcr.io/latere-ai/sandbox-agents:latest \
+  -p "explain this project"
+```
+
+⚠️  Do **not** bind-mount `~/.codex` as a whole directory (even read-only): codex 0.120+ needs a writable config directory, and a read-write mount of the whole dir would let the container overwrite your host's auth/config.
 
 ### Notes
 
@@ -159,5 +196,5 @@ These details are relevant if you are building custom images on top of the sandb
 - **User**: non-root (UID 1000)
 - **Entrypoint**: accepts Claude Code-compatible flags (`-p <prompt>`, `--verbose`, `--output-format stream-json`, `--model <val>`, `--resume <val>`)
 - **Output**: last line of stdout must be a JSON object with `{result, session_id, stop_reason, is_error, total_cost_usd, usage}`
-- **Environment variables**: receives `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` (Claude) or `OPENAI_API_KEY` (Codex) via `--env-file`
-- **Config volume**: Claude config at `/home/claude/.claude`, Codex auth at `/home/codex/.codex`
+- **Environment variables**: receives `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` (Claude) or `OPENAI_API_KEY` (Codex) via `--env-file`. `sandbox-agents` additionally reads `WALLFACER_AGENT=claude|codex` to pick which CLI to launch.
+- **Config volume**: Claude config at `/home/claude/.claude`, Codex auth at `/home/codex/.codex`. In `sandbox-agents`, both live under `/home/agent/` (`/home/agent/.claude`, `/home/agent/.codex`).
