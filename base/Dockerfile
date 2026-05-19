@@ -69,6 +69,25 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     apt-get install -y nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# --- Interactive prompt: instance-aware hostname ---
+# The sandbox runtime injects CELLA_HOST into each interactive session
+# with the human-friendly instance name. A pooled container keeps the
+# kernel hostname it was created with (immutable on a running
+# container), so rewrite the stock PS1 to prefer CELLA_HOST and fall
+# back to \h when it is unset. Patched in /etc/skel so users created by
+# child images (useradd -m) inherit it, plus root and the default user
+# already materialized from skel. Build fails if the base ever stops
+# shipping a \h prompt, so this cannot silently regress.
+RUN set -eu; patched=0; \
+    for rc in /etc/skel/.bashrc /root/.bashrc /home/ubuntu/.bashrc; do \
+        [ -f "$rc" ] || continue; \
+        if ! grep -q 'CELLA_HOST' "$rc" && grep -q '\\h' "$rc"; then \
+            sed -i 's/\\h/${CELLA_HOST:-\\h}/g' "$rc"; \
+        fi; \
+        grep -q 'CELLA_HOST' "$rc" && patched=$((patched+1)) || true; \
+    done; \
+    [ "$patched" -gt 0 ] || { echo 'base .bashrc had no \h prompt to patch' >&2; exit 1; }
+
 # --- Workspace ---
 RUN mkdir -p /workspace
 

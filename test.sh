@@ -40,6 +40,23 @@ done
 out=$(run_in "$BASE" 'pwd') && [[ "$out" == "/workspace" ]] \
     && pass "workdir: /workspace" || fail "workdir is $out, expected /workspace"
 
+# Prompt must surface CELLA_HOST (the runtime-injected instance name)
+# and fall back to the kernel hostname when it is unset, so pooled
+# containers show the right name without a hostname change.
+run_in "$BASE" 'grep -q CELLA_HOST /etc/skel/.bashrc && grep -q CELLA_HOST /root/.bashrc' >/dev/null 2>&1 \
+    && pass "prompt: /etc/skel and /root .bashrc patched" \
+    || fail "prompt: rc files missing CELLA_HOST"
+
+out=$(run_in "$BASE" "CELLA_HOST=cella-test-xyz bash -ic 'printf %s \"\${PS1@P}\"' 2>/dev/null") \
+    && [[ "$out" == *"cella-test-xyz"* ]] \
+    && pass "prompt: uses CELLA_HOST when set" \
+    || fail "prompt: CELLA_HOST not honored (got: ${out})"
+
+out=$(run_in "$BASE" "bash -ic 'printf %s \"\${PS1@P}\"' 2>/dev/null") \
+    && [[ -n "$out" && "$out" != *"CELLA_HOST"* && "$out" != *':-'* ]] \
+    && pass "prompt: falls back to hostname when CELLA_HOST unset" \
+    || fail "prompt: fallback broken (got: ${out})"
+
 # --- Claude image ---
 section "sandbox-claude:${TAG}"
 CLAUDE="${REGISTRY}/sandbox-claude:${TAG}"
@@ -49,6 +66,12 @@ out=$(run_in "$CLAUDE" 'whoami') && [[ "$out" == "claude" ]] \
 
 out=$(run_in "$CLAUDE" 'echo $HOME') && [[ "$out" == "/home/claude" ]] \
     && pass "home: /home/claude" || fail "home is $out"
+
+# The non-root user is created via useradd -m, so it must inherit the
+# CELLA_HOST prompt from the base image's patched /etc/skel.
+run_in "$CLAUDE" 'grep -q CELLA_HOST ~/.bashrc' >/dev/null 2>&1 \
+    && pass "prompt: claude user inherits CELLA_HOST" \
+    || fail "prompt: /home/claude/.bashrc missing CELLA_HOST"
 
 out=$(run_in "$CLAUDE" 'claude --version') && [[ "$out" == *"Claude Code"* ]] \
     && pass "claude cli: $out" || fail "claude cli not found"
