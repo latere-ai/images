@@ -42,8 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Chrome for Testing is the automation-grade Chromium build used by
 # computer-use stacks. Pin the version so image rebuilds are reproducible.
 ARG CFT_VERSION=128.0.6613.119
+ARG TARGETARCH
 RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
     case "$arch" in \
         amd64) cft_arch=linux64 ;; \
         *) echo "Chrome for Testing Linux archives are only available for amd64; build this image for linux/amd64" >&2; exit 1 ;; \
