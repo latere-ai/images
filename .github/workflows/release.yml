@@ -61,6 +61,8 @@ jobs:
               - 'codex/**'
             agents:
               - 'agents/**'
+            gui:
+              - 'gui/**'
       - id: compute
         shell: bash
         env:
@@ -70,21 +72,23 @@ jobs:
           CLAUDE: ${{ steps.filter.outputs.claude }}
           CODEX: ${{ steps.filter.outputs.codex }}
           AGENTS: ${{ steps.filter.outputs.agents }}
+          GUI: ${{ steps.filter.outputs.gui }}
         run: |
           set -e
           if [[ "$EVENT" == "push" && "$REF" == refs/heads/* ]]; then
-            base=$BASE; claude=$CLAUDE; codex=$CODEX; agents=$AGENTS
+            base=$BASE; claude=$CLAUDE; codex=$CODEX; agents=$AGENTS; gui=$GUI
           else
-            base=true; claude=true; codex=true; agents=true
+            base=true; claude=true; codex=true; agents=true; gui=true
           fi
           # Base change propagates to all sandboxes (they FROM it).
           if [[ "$base" == "true" ]]; then
-            claude=true; codex=true; agents=true
+            claude=true; codex=true; agents=true; gui=true
           fi
           entries=()
-          [[ "$claude" == "true" ]] && entries+=('{"name":"sandbox-claude","context":"claude"}')
-          [[ "$codex"  == "true" ]] && entries+=('{"name":"sandbox-codex","context":"codex"}')
-          [[ "$agents" == "true" ]] && entries+=('{"name":"sandbox-agents","context":"agents"}')
+          [[ "$claude" == "true" ]] && entries+=('{"name":"sandbox-claude","context":"claude","platforms":"linux/amd64,linux/arm64"}')
+          [[ "$codex"  == "true" ]] && entries+=('{"name":"sandbox-codex","context":"codex","platforms":"linux/amd64,linux/arm64"}')
+          [[ "$agents" == "true" ]] && entries+=('{"name":"sandbox-agents","context":"agents","platforms":"linux/amd64,linux/arm64"}')
+          [[ "$gui"    == "true" ]] && entries+=('{"name":"sandbox-gui","context":"gui","platforms":"linux/amd64"}')
           joined=$(IFS=,; echo "${entries[*]}")
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "sandboxes={\"image\":[${joined}]}" >> "$GITHUB_OUTPUT"
@@ -130,7 +134,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: base
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.image.platforms }}
           push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

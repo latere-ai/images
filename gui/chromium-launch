@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec /usr/local/bin/chromium \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --disable-gpu \
+  --use-gl=swiftshader \
+  --user-data-dir="${HOME}/.chromium" \
+  "$@"

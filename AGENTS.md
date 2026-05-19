@@ -10,6 +10,7 @@ Container images for [Wallfacer](https://github.com/changkun/wallfacer) agent sa
 - **sandbox-claude**: extends base with the Claude Code CLI
 - **sandbox-codex**: extends base with the OpenAI Codex CLI
 - **sandbox-agents**: unified image with both Claude Code and Codex CLIs; dispatches at runtime via `WALLFACER_AGENT`
+- **sandbox-gui**: GUI-capable base variant with Xvfb, x11vnc, noVNC, xdotool, ImageMagick, and Chrome for Testing
 
 ## Structure
 
@@ -23,7 +24,11 @@ agents/Dockerfile       Unified Claude+Codex sandbox (FROM base, user "agent")
 agents/entrypoint.sh    Dispatcher: exec's claude-agent.sh or codex-agent.sh by $WALLFACER_AGENT
 agents/claude-agent.sh  Claude Code sub-entrypoint for sandbox-agents
 agents/codex-agent.sh   Codex sub-entrypoint for sandbox-agents
-Makefile                Build targets (base, claude, codex, agents, clean)
+gui/Dockerfile          GUI sandbox (FROM base, user "gui")
+gui/entrypoint.sh       Starts the X/VNC supervisor, waits for DISPLAY, then execs caller command
+gui/supervisor.sh       Restarts Xvfb, mutter, x11vnc, and websockify/noVNC
+gui/chromium-launch     Wrapper for Chrome for Testing container flags
+Makefile                Build targets (base, claude, codex, agents, gui, clean)
 .github/workflows/      CI: build-base then build-sandboxes (multi-arch)
 ```
 
@@ -35,14 +40,15 @@ make base         # Build base image only
 make claude       # Build claude sandbox (builds base first)
 make codex        # Build codex sandbox (builds base first)
 make agents       # Build unified claude+codex sandbox (builds base first)
+make gui          # Build GUI/VNC sandbox (builds base first)
 make clean        # Remove all images
 make RUNTIME=docker  # Use Docker instead of Podman
 ```
 
 ## Conventions
 
-- All shared system-level dependencies (OS packages, Go, Go tools, Node.js) go in `base/Dockerfile`. User creation and CLI installs go in each child Dockerfile.
-- Each image has its own non-root user (UID 1000): `claude` for sandbox-claude, `codex` for sandbox-codex, `agent` for sandbox-agents. Wallfacer hardcodes paths under `/home/claude/` and `/home/codex/` for volume mounts on the per-agent images, and under `/home/agent/` for the unified image, so these usernames must not change.
+- All shared system-level dependencies (OS packages, Go, Go tools, Node.js) go in `base/Dockerfile`. User creation and CLI installs go in each child Dockerfile. GUI-only desktop dependencies stay in `gui/Dockerfile`.
+- Each image has its own non-root user (UID 1000): `claude` for sandbox-claude, `codex` for sandbox-codex, `agent` for sandbox-agents, and `gui` for sandbox-gui. Wallfacer hardcodes paths under `/home/claude/` and `/home/codex/` for volume mounts on the per-agent images, and under `/home/agent/` for the unified image, so these usernames must not change.
 - Major Go tools are pinned to specific versions via build ARGs. Utility tools use `@latest`.
 - The codex entrypoint translates Claude Code-style flags to Codex CLI format and emits a Claude Code-compatible JSON envelope.
 - `sandbox-agents` dispatches via `WALLFACER_AGENT` (`claude` default, `codex`). Unknown values exit non-zero so wallfacer catches misconfiguration immediately. The sub-entrypoints `agents/claude-agent.sh` and `agents/codex-agent.sh` must stay behaviourally identical to `claude/entrypoint.sh` and `codex/entrypoint.sh` respectively.

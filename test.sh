@@ -147,6 +147,27 @@ else
     fail "dispatcher did not reject WALLFACER_AGENT=bogus (got: ${out:0:80})"
 fi
 
+# --- GUI image ---
+section "sandbox-gui:${TAG}"
+GUI="${REGISTRY}/sandbox-gui:${TAG}"
+
+out=$(run_in "$GUI" 'whoami') && [[ "$out" == "gui" ]] \
+    && pass "user: gui" || fail "user is $out, expected gui"
+
+out=$(run_in "$GUI" 'echo $HOME') && [[ "$out" == "/home/gui" ]] \
+    && pass "home: /home/gui" || fail "home is $out"
+
+for tool in Xvfb x11vnc websockify xdotool convert chromium chromium-launch; do
+    run_in "$GUI" "which $tool" >/dev/null 2>&1 \
+        && pass "gui tool: $tool" || fail "gui tool missing: $tool"
+done
+
+out=$(run_in "$GUI" 'printf "%s %s" "$DISPLAY" "$SCREEN_GEOMETRY"') && [[ "$out" == ":0 1280x800x24" ]] \
+    && pass "display defaults: $out" || fail "display defaults wrong: $out"
+
+run_in "$GUI" 'test -d /usr/share/novnc && test -f /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
+    && pass "novnc + supervisor installed" || fail "novnc or supervisor missing"
+
 # --- Smoke tests (requires credentials) ---
 # Set ENV_FILE to an env file with CLAUDE_CODE_OAUTH_TOKEN / OPENAI_API_KEY
 # to run real prompt tests. Skipped if ENV_FILE is not set.
