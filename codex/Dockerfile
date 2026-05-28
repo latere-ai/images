@@ -19,7 +19,7 @@ ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- OpenAI Codex CLI ---
-ARG CODEX_VERSION=0.121.0
+ARG CODEX_VERSION=0.134.0
 RUN npm install -g @openai/codex@${CODEX_VERSION}
 
 # Pre-create ~/.codex so callers can bind-mount a single file

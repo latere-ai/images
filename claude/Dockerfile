@@ -19,7 +19,7 @@ ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- Claude Code CLI ---
-ARG CLAUDE_CODE_VERSION=2.1.112
+ARG CLAUDE_CODE_VERSION=2.1.154
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 # Pre-create ~/.claude so callers can bind-mount a single credential
