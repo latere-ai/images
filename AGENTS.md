@@ -1,72 +1,45 @@
-# AGENTS.md
+# Repository Guidelines
 
-Instructions for AI agents working on this repository.
+These notes orient agents and human contributors working on the sandbox images in this repo.
 
-## Project Overview
+## Purpose & Layout
 
-Container images for [Wallfacer](https://github.com/changkun/wallfacer) agent sandboxes. Three images are built from this repo:
+Container images for the Cella sandbox platform. Two images are built from this repo:
 
-- **sandbox-base**: shared base with OS packages, Go, Go tools, Node.js, and Python
-- **sandbox-claude**: extends base with the Claude Code CLI
-- **sandbox-codex**: extends base with the OpenAI Codex CLI
-- **sandbox-agents**: unified image with both Claude Code and Codex CLIs; dispatches at runtime via `WALLFACER_AGENT`
-- **sandbox-gui**: GUI-capable base variant with Xvfb, x11vnc, noVNC, xdotool, ImageMagick, and Chrome for Testing
+- **sandbox-base**: shared base with OS packages, Go (+ tools), Node.js, Python, an instance-aware shell prompt, and a non-root `agent` user
+- **sandbox-gui**: base + Xvfb/x11vnc/noVNC/Chromium GUI stack for computer-use sandboxes
 
-## Structure
+## Build & Test Commands
 
-```
-base/Dockerfile         Shared base image (Ubuntu 24.04, Go, Node.js, Go tools)
-claude/Dockerfile       Claude Code sandbox (FROM base)
-claude/entrypoint.sh    Claude Code entrypoint
-codex/Dockerfile        Codex sandbox (FROM base)
-codex/entrypoint.sh     Codex entrypoint with argument translation
-agents/Dockerfile       Unified Claude+Codex sandbox (FROM base, user "agent")
-agents/entrypoint.sh    Dispatcher: exec's claude-agent.sh or codex-agent.sh by $WALLFACER_AGENT
-agents/claude-agent.sh  Claude Code sub-entrypoint for sandbox-agents
-agents/codex-agent.sh   Codex sub-entrypoint for sandbox-agents
-gui/Dockerfile          GUI sandbox (FROM base, user "gui")
-gui/entrypoint.sh       Starts the X/VNC supervisor, waits for DISPLAY, then execs caller command
-gui/supervisor.sh       Restarts Xvfb, mutter, x11vnc, and websockify/noVNC
-gui/chromium-launch     Wrapper for Chrome for Testing container flags
-Makefile                Build targets (base, claude, codex, agents, gui, clean)
-.github/workflows/      CI: build-base then build-sandboxes (multi-arch)
-```
+- `make` — build all images locally (base, then gui)
+- `make base` — build just the base image
+- `make gui` — build the GUI sandbox (depends on base)
+- `RUNTIME=docker make` — use Docker instead of Podman
+- `sh test.sh [tag]` — verify built images (versions, tools, user, prompt, GUI stack)
 
-## Build Commands
+## Repository Layout (map)
 
-```bash
-make              # Build all images (base, claude, codex, agents)
-make base         # Build base image only
-make claude       # Build claude sandbox (builds base first)
-make codex        # Build codex sandbox (builds base first)
-make agents       # Build unified claude+codex sandbox (builds base first)
-make gui          # Build GUI/VNC sandbox (builds base first)
-make clean        # Remove all images
-make RUNTIME=docker  # Use Docker instead of Podman
-```
+- `base/` — shared Ubuntu base (Go, Node, Python, shell prompt, `agent` user)
+- `gui/` — GUI/VNC sandbox (`entrypoint.sh`, `supervisor.sh`, `chromium-launch`)
+- `.github/workflows/release.yml` — multi-arch build + GHCR publish
+- `test.sh` — image verification script
 
-## Conventions
+## Image Conventions & Tips
 
-- All shared system-level dependencies (OS packages, Go, Go tools, Node.js) go in `base/Dockerfile`. User creation and CLI installs go in each child Dockerfile. GUI-only desktop dependencies stay in `gui/Dockerfile`.
-- Each image has its own non-root user (UID 1000): `claude` for sandbox-claude, `codex` for sandbox-codex, `agent` for sandbox-agents, and `gui` for sandbox-gui. Wallfacer hardcodes paths under `/home/claude/` and `/home/codex/` for volume mounts on the per-agent images, and under `/home/agent/` for the unified image, so these usernames must not change.
-- Major Go tools are pinned to specific versions via build ARGs. Utility tools use `@latest`.
-- The codex entrypoint translates Claude Code-style flags to Codex CLI format and emits a Claude Code-compatible JSON envelope.
-- `sandbox-agents` dispatches via `WALLFACER_AGENT` (`claude` default, `codex`). Unknown values exit non-zero so wallfacer catches misconfiguration immediately. The sub-entrypoints `agents/claude-agent.sh` and `agents/codex-agent.sh` must stay behaviourally identical to `claude/entrypoint.sh` and `codex/entrypoint.sh` respectively.
+- Base is the contract: pin tool versions there and create the non-root `agent` user there; child images inherit both. Keep child images thin.
+- Both images run as the non-root `agent` user (UID 1000) with passwordless sudo. Workspaces are mounted under `/workspace`.
+- `sandbox-gui` runs an Xvfb display with a window manager, x11vnc, and a noVNC websocket bridge on port 6080; Chrome for Testing is pinned and only built for amd64. The supervisor restarts X/VNC processes; the entrypoint waits for the display before exec'ing the command.
 
-## Entrypoint Contract
+## Coding Style & Conventions
 
-Wallfacer expects sandbox images to:
+- Dockerfiles: one logical step per `RUN`; group apt installs; clean apt lists in the same layer.
+- Shell: `set -euo pipefail`; quote variables; prefer `exec` for the final process.
+- Keep tool version pins in `base/` (e.g. `GO_VERSION`, `GOPLS_VERSION`); document non-obvious choices inline.
+- CI builds the base multi-arch (amd64/arm64); gui is amd64-only (Chrome for Testing has no Linux arm64 archive). Keep that constraint in mind for native deps.
 
-- Use `/workspace` as the working directory
-- Run as non-root (UID 1000)
-- Accept Claude Code-compatible flags (`-p <prompt>`, `--verbose`, `--output-format stream-json`, `--model <val>`, `--resume <val>`)
-- Emit a final JSON line: `{result, session_id, stop_reason, is_error, total_cost_usd, usage}`
+## Commit & PR Guidelines
 
-## CI/CD
-
-The release workflow (`.github/workflows/release.yml`) runs on version tags (`v*`) and manual dispatch:
-
-1. **build-base**: builds and pushes `sandbox-base` (multi-arch amd64/arm64)
-2. **build-sandboxes**: builds and pushes `sandbox-claude` and `sandbox-codex` from the pushed base
-
-Images are published to `ghcr.io/latere-ai/`.
+- Commit style: short imperative subject (e.g. "Add gui sandbox", "Pin gopls"); group related changes.
+- PRs: describe what changed and why; note any base-image impact (it rebuilds all child images).
+- Test before pushing: `sh test.sh`.
+- CI publishes to GHCR on tags/releases; avoid unrelated version bumps in the same PR.
