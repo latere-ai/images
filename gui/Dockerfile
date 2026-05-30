@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     novnc \
     ca-certificates \
     curl \
+    socat \
     tini \
     unzip \
     libnss3 \

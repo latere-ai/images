@@ -86,7 +86,7 @@ out=$(run_in "$GUI" 'echo $HOME') && [[ "$out" == "/home/agent" ]] \
 out=$(run_in "$GUI" 'go version') \
     && pass "go (inherited): $out" || fail "go not inherited from base"
 
-for tool in Xvfb x11vnc websockify xdotool convert chromium chromium-launch; do
+for tool in Xvfb x11vnc websockify xdotool convert chromium chromium-launch socat; do
     run_in "$GUI" "which $tool" >/dev/null 2>&1 \
         && pass "gui tool: $tool" || fail "gui tool missing: $tool"
 done
