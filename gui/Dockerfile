@@ -56,21 +56,12 @@ RUN set -eux; \
     ln -s /opt/chromium/chrome /usr/local/bin/chromium; \
     find /opt/chromium/locales -name '*.pak' ! -name 'en-US.pak' -delete
 
-ARG USERNAME=gui
-ARG USER_UID=1000
-ARG USER_GID=1000
-RUN userdel -r ubuntu 2>/dev/null || true && \
-    groupdel ubuntu 2>/dev/null || true && \
-    groupadd --gid ${USER_GID} ${USERNAME} && \
-    useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USERNAME} && \
-    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} && \
-    chown ${USERNAME}:${USERNAME} /workspace
-
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/gui-entrypoint
 COPY --chmod=0755 supervisor.sh /usr/local/bin/gui-supervisor
 COPY --chmod=0755 chromium-launch /usr/local/bin/chromium-launch
 
-USER ${USERNAME}
+# The non-root `agent` user (UID 1000) is created by the base image.
+USER agent
 ENV DISPLAY=:0
 ENV SCREEN_GEOMETRY=1280x800x24
 ENV NOVNC_PORT=6080

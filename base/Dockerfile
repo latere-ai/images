@@ -88,7 +88,23 @@ RUN set -eu; patched=0; \
     done; \
     [ "$patched" -gt 0 ] || { echo 'base .bashrc had no \h prompt to patch' >&2; exit 1; }
 
-# --- Workspace ---
-RUN mkdir -p /workspace
+# --- Non-root user ---
+# Every sandbox runs as a single non-root user (UID 1000) with passwordless
+# sudo. The user is created after the skel patch above so its $HOME/.bashrc is
+# materialized from the patched /etc/skel. Child images (e.g. gui) inherit this
+# user instead of recreating it.
+ARG USERNAME=agent
+ARG USER_UID=1000
+ARG USER_GID=1000
+RUN userdel -r ubuntu 2>/dev/null || true && \
+    groupdel ubuntu 2>/dev/null || true && \
+    groupadd --gid ${USER_GID} ${USERNAME} && \
+    useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USERNAME} && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} && \
+    mkdir -p /workspace && \
+    chown ${USERNAME}:${USERNAME} /workspace
 
+USER ${USERNAME}
+ENV NPM_CONFIG_PREFIX=/home/${USERNAME}/.npm-global
+ENV PATH=$PATH:/home/${USERNAME}/.npm-global/bin
 WORKDIR /workspace

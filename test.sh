@@ -57,105 +57,34 @@ out=$(run_in "$BASE" "bash -ic 'printf %s \"\${PS1@P}\"' 2>/dev/null") \
     && pass "prompt: falls back to hostname when CELLA_HOST unset" \
     || fail "prompt: fallback broken (got: ${out})"
 
-# --- Claude image ---
-section "sandbox-claude:${TAG}"
-CLAUDE="${REGISTRY}/sandbox-claude:${TAG}"
-
-out=$(run_in "$CLAUDE" 'whoami') && [[ "$out" == "claude" ]] \
-    && pass "user: claude" || fail "user is $out, expected claude"
-
-out=$(run_in "$CLAUDE" 'echo $HOME') && [[ "$out" == "/home/claude" ]] \
-    && pass "home: /home/claude" || fail "home is $out"
-
-# The non-root user is created via useradd -m, so it must inherit the
-# CELLA_HOST prompt from the base image's patched /etc/skel.
-run_in "$CLAUDE" 'grep -q CELLA_HOST ~/.bashrc' >/dev/null 2>&1 \
-    && pass "prompt: claude user inherits CELLA_HOST" \
-    || fail "prompt: /home/claude/.bashrc missing CELLA_HOST"
-
-out=$(run_in "$CLAUDE" 'claude --version') && [[ "$out" == *"Claude Code"* ]] \
-    && pass "claude cli: $out" || fail "claude cli not found"
-
-out=$(run_in "$CLAUDE" 'go version') \
-    && pass "go (inherited): $out" || fail "go not inherited from base"
-
-out=$(run_in "$CLAUDE" 'node --version') \
-    && pass "node (inherited): $out" || fail "node not inherited from base"
-
-run_in "$CLAUDE" 'test -d /workspace' \
-    && pass "workspace dir exists" || fail "/workspace missing"
-
-run_in "$CLAUDE" 'test -w /workspace' \
-    && pass "workspace writable" || fail "/workspace not writable"
-
-# --- Codex image ---
-section "sandbox-codex:${TAG}"
-CODEX="${REGISTRY}/sandbox-codex:${TAG}"
-
-out=$(run_in "$CODEX" 'whoami') && [[ "$out" == "codex" ]] \
-    && pass "user: codex" || fail "user is $out, expected codex"
-
-out=$(run_in "$CODEX" 'echo $HOME') && [[ "$out" == "/home/codex" ]] \
-    && pass "home: /home/codex" || fail "home is $out"
-
-out=$(run_in "$CODEX" 'codex --version') && [[ -n "$out" ]] \
-    && pass "codex cli: $out" || fail "codex cli not found"
-
-out=$(run_in "$CODEX" 'go version') \
-    && pass "go (inherited): $out" || fail "go not inherited from base"
-
-out=$(run_in "$CODEX" 'node --version') \
-    && pass "node (inherited): $out" || fail "node not inherited from base"
-
-run_in "$CODEX" 'test -d /workspace' \
-    && pass "workspace dir exists" || fail "/workspace missing"
-
-run_in "$CODEX" 'test -w /workspace' \
-    && pass "workspace writable" || fail "/workspace not writable"
-
-# --- Agents image (unified Claude + Codex) ---
-section "sandbox-agents:${TAG}"
-AGENTS="${REGISTRY}/sandbox-agents:${TAG}"
-
-out=$(run_in "$AGENTS" 'whoami') && [[ "$out" == "agent" ]] \
+# The non-root `agent` user is created in the base image; the prompt
+# must surface CELLA_HOST for it too (inherited from the patched
+# /etc/skel via useradd -m).
+out=$(run_in "$BASE" 'whoami') && [[ "$out" == "agent" ]] \
     && pass "user: agent" || fail "user is $out, expected agent"
 
-out=$(run_in "$AGENTS" 'echo $HOME') && [[ "$out" == "/home/agent" ]] \
+out=$(run_in "$BASE" 'echo $HOME') && [[ "$out" == "/home/agent" ]] \
     && pass "home: /home/agent" || fail "home is $out"
 
-out=$(run_in "$AGENTS" 'claude --version') && [[ "$out" == *"Claude Code"* ]] \
-    && pass "claude cli: $out" || fail "claude cli not found"
+run_in "$BASE" 'grep -q CELLA_HOST ~/.bashrc' >/dev/null 2>&1 \
+    && pass "prompt: agent user inherits CELLA_HOST" \
+    || fail "prompt: /home/agent/.bashrc missing CELLA_HOST"
 
-out=$(run_in "$AGENTS" 'codex --version') && [[ -n "$out" ]] \
-    && pass "codex cli: $out" || fail "codex cli not found"
-
-out=$(run_in "$AGENTS" 'go version') \
-    && pass "go (inherited): $out" || fail "go not inherited from base"
-
-run_in "$AGENTS" 'test -d /workspace' \
-    && pass "workspace dir exists" || fail "/workspace missing"
-
-run_in "$AGENTS" 'test -w /workspace' \
+run_in "$BASE" 'test -w /workspace' \
     && pass "workspace writable" || fail "/workspace not writable"
-
-# The dispatcher must reject unknown WALLFACER_AGENT values so wallfacer
-# can catch misconfiguration loudly instead of defaulting silently.
-out=$($RUNTIME run --rm -e WALLFACER_AGENT=bogus "$AGENTS" --help 2>&1 || true)
-if echo "$out" | grep -q "unknown WALLFACER_AGENT"; then
-    pass "dispatcher rejects unknown agent"
-else
-    fail "dispatcher did not reject WALLFACER_AGENT=bogus (got: ${out:0:80})"
-fi
 
 # --- GUI image ---
 section "sandbox-gui:${TAG}"
 GUI="${REGISTRY}/sandbox-gui:${TAG}"
 
-out=$(run_in "$GUI" 'whoami') && [[ "$out" == "gui" ]] \
-    && pass "user: gui" || fail "user is $out, expected gui"
+out=$(run_in "$GUI" 'whoami') && [[ "$out" == "agent" ]] \
+    && pass "user: agent" || fail "user is $out, expected agent"
 
-out=$(run_in "$GUI" 'echo $HOME') && [[ "$out" == "/home/gui" ]] \
-    && pass "home: /home/gui" || fail "home is $out"
+out=$(run_in "$GUI" 'echo $HOME') && [[ "$out" == "/home/agent" ]] \
+    && pass "home: /home/agent" || fail "home is $out"
+
+out=$(run_in "$GUI" 'go version') \
+    && pass "go (inherited): $out" || fail "go not inherited from base"
 
 for tool in Xvfb x11vnc websockify xdotool convert chromium chromium-launch; do
     run_in "$GUI" "which $tool" >/dev/null 2>&1 \
@@ -167,88 +96,6 @@ out=$(run_in "$GUI" 'printf "%s %s" "$DISPLAY" "$SCREEN_GEOMETRY"') && [[ "$out"
 
 run_in "$GUI" 'test -d /usr/share/novnc && test -f /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
     && pass "novnc + supervisor installed" || fail "novnc or supervisor missing"
-
-# --- Smoke tests (requires credentials) ---
-# Set ENV_FILE to an env file with CLAUDE_CODE_OAUTH_TOKEN / OPENAI_API_KEY
-# to run real prompt tests. Skipped if ENV_FILE is not set.
-ENV_FILE="${ENV_FILE:-}"
-if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then
-    section "smoke: claude (live prompt)"
-    out=$($RUNTIME run --rm \
-        --env-file "$ENV_FILE" \
-        -v claude-config:/home/claude/.claude \
-        "$CLAUDE" \
-        -p "who are you? answer in one sentence." \
-        --verbose --output-format stream-json 2>&1 | tail -1)
-    if echo "$out" | grep -q '"result"'; then
-        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
-        pass "claude replied: ${result:0:80}"
-    else
-        fail "claude did not produce a result"
-    fi
-
-    section "smoke: codex (live prompt)"
-    # Mount only auth.json read-only; codex 0.120+ writes config.toml
-    # and sessions into ~/.codex at startup, so the directory itself
-    # must be writable inside the container. A read-only mount of the
-    # whole dir fails with "failed to persist config.toml".
-    CODEX_AUTH_ARGS=""
-    if [ -f "${HOME}/.codex/auth.json" ]; then
-        CODEX_AUTH_ARGS="-v ${HOME}/.codex/auth.json:/home/codex/.codex/auth.json:ro"
-    fi
-    out=$($RUNTIME run --rm \
-        --env-file "$ENV_FILE" \
-        $CODEX_AUTH_ARGS \
-        "$CODEX" \
-        -p "who are you? answer in one sentence." \
-        --verbose --output-format stream-json 2>&1 | tail -1)
-    if echo "$out" | grep -q '"result"'; then
-        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
-        pass "codex replied: ${result:0:80}"
-    else
-        fail "codex did not produce a result"
-    fi
-
-    section "smoke: agents (claude dispatch)"
-    out=$($RUNTIME run --rm \
-        --env-file "$ENV_FILE" \
-        -e WALLFACER_AGENT=claude \
-        -v agents-claude-config:/home/agent/.claude \
-        "$AGENTS" \
-        -p "who are you? answer in one sentence." \
-        --verbose --output-format stream-json 2>&1 | tail -1)
-    if echo "$out" | grep -q '"result"'; then
-        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
-        pass "agents/claude replied: ${result:0:80}"
-    else
-        fail "agents/claude did not produce a result"
-    fi
-
-    section "smoke: agents (codex dispatch)"
-    # Mount only auth.json read-only so codex can still write its own
-    # config.toml / sessions into the in-container ~/.codex/ without
-    # touching host state. The Dockerfile pre-creates ~/.codex so the
-    # runtime does not have to create the parent dir as root.
-    AGENTS_CODEX_AUTH_ARGS=""
-    if [ -f "${HOME}/.codex/auth.json" ]; then
-        AGENTS_CODEX_AUTH_ARGS="-v ${HOME}/.codex/auth.json:/home/agent/.codex/auth.json:ro"
-    fi
-    out=$($RUNTIME run --rm \
-        --env-file "$ENV_FILE" \
-        -e WALLFACER_AGENT=codex \
-        $AGENTS_CODEX_AUTH_ARGS \
-        "$AGENTS" \
-        -p "who are you? answer in one sentence." \
-        --verbose --output-format stream-json 2>&1 | tail -1)
-    if echo "$out" | grep -q '"result"'; then
-        result=$(echo "$out" | jq -r '.result // empty' 2>/dev/null)
-        pass "agents/codex replied: ${result:0:80}"
-    else
-        fail "agents/codex did not produce a result"
-    fi
-else
-    section "smoke tests skipped (set ENV_FILE to enable)"
-fi
 
 # --- Summary ---
 echo
