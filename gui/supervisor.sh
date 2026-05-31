@@ -34,7 +34,7 @@ trap stop_children EXIT INT TERM
 
 start_loop xvfb Xvfb "${DISPLAY}" -screen 0 "${SCREEN_GEOMETRY}" -nolisten tcp -ac
 sleep 0.2
-start_loop mutter dbus-launch --exit-with-session mutter --x11 --no-cursor --replace
+start_loop mutter dbus-launch --exit-with-session mutter --x11 --replace
 start_loop x11vnc x11vnc -display "${DISPLAY}" -localhost -rfbport 5900 -shared -forever -nolookup -passwdfile "${HOME}/.vncpass"
 start_loop websockify websockify --web /usr/share/novnc "${NOVNC_PORT}" localhost:5900
 
