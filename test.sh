@@ -107,6 +107,16 @@ run_in "$GUI" 'grep -F -- "--no-cursor" /usr/local/bin/gui-supervisor' >/dev/nul
     && fail "supervisor: mutter --no-cursor is invalid and will restart-loop" \
     || pass "supervisor: no invalid mutter --no-cursor flag"
 
+# Regression: x11vnc 0.9.16's XDAMAGE/XFIXES polling paths deadlock
+# against a compositing window manager (mutter). The symptom is x11vnc
+# accepts TCP connections on 5900 but never emits the RFB protocol
+# greeting, so noVNC stays at "CONNECTING" forever and the desktop tab
+# renders an empty black canvas. -noxdamage and -noxfixes route around
+# both extensions; pair them so a future cleanup doesn't drop one.
+run_in "$GUI" 'grep -q -- "-noxdamage" /usr/local/bin/gui-supervisor && grep -q -- "-noxfixes" /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
+    && pass "supervisor: x11vnc carries -noxdamage and -noxfixes (compositor workarounds)" \
+    || fail "supervisor: x11vnc must pass -noxdamage and -noxfixes to survive mutter as the WM"
+
 # --- Summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
