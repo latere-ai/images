@@ -97,6 +97,16 @@ out=$(run_in "$GUI" 'printf "%s %s" "$DISPLAY" "$SCREEN_GEOMETRY"') && [[ "$out"
 run_in "$GUI" 'test -d /usr/share/novnc && test -f /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
     && pass "novnc + supervisor installed" || fail "novnc or supervisor missing"
 
+# Regression: the supervisor must not pass mutter flags that mutter
+# rejects. --no-cursor was added speculatively and is not a valid mutter
+# option; with it, mutter exits 1 immediately, the supervisor restarts it
+# once per second, and each restart leaks dbus + X clients on Xvfb until
+# the display hits its "Maximum number of clients reached" limit and the
+# readiness probe can no longer reach :0.
+run_in "$GUI" 'grep -F -- "--no-cursor" /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
+    && fail "supervisor: mutter --no-cursor is invalid and will restart-loop" \
+    || pass "supervisor: no invalid mutter --no-cursor flag"
+
 # --- Summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
