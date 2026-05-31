@@ -1,6 +1,6 @@
 ---
 title: Local-First Build and Push (images / base + sandboxes)
-status: planned
+status: abandoned
 depends_on:
   - ../../terraform/specs/local-build-deploy.md
 affects:
