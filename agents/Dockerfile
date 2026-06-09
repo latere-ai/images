@@ -22,7 +22,7 @@ ENV GOPATH=/home/${USERNAME}/go
 ENV PATH=$PATH:/home/${USERNAME}/go/bin:/home/${USERNAME}/.local/bin
 
 # --- Agent CLIs ---
-ARG CLAUDE_CODE_VERSION=2.1.154
+ARG CLAUDE_CODE_VERSION=2.1.170
 ARG CODEX_VERSION=0.134.0
 RUN npm install -g \
       @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
