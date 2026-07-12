@@ -9,6 +9,8 @@ Container images for the Cella sandbox platform.
 - **sandbox-gui**: base + GUI/VNC stack for computer-use workflows
   `ghcr.io/latere-ai/sandbox-gui`
 
+The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix, the Makefile targets, `test.sh`, and the published catalog all derive from it. To add an image: create a context directory with a `Dockerfile`, add one entry to `catalog.yaml`, done. `catalog.yaml` documents every field inline; `./catalog.sh lint` validates it (and `sh catalog_test.sh` tests the tooling itself).
+
 ## What's inside
 
 The base image (Ubuntu 24.04, multi-arch amd64/arm64) provides:
@@ -48,13 +50,13 @@ Replace `podman` with `docker` if using Docker.
 git clone https://github.com/latere-ai/images.git
 cd images
 
-make            # Build all images (base, gui)
+make            # Build all images in catalog order
 make base       # Build base image only
 make gui        # Build GUI/VNC sandbox (builds base first)
 make clean      # Remove all images
 ```
 
-Override the container runtime (default: `podman`):
+Targets are the context directories from `catalog.yaml`. Building requires `yq` and `jq`. Override the container runtime (default: `podman`):
 
 ```bash
 make RUNTIME=docker
@@ -112,6 +114,39 @@ docker run --rm -it \
 - Replace `docker` with `podman` if preferred.
 - Mount additional project directories as needed under `/workspace/`.
 - To limit resources: `--cpus 2 --memory 4g`.
+
+## Releases and the published catalog
+
+Images publish to GHCR on tag push (`v*`), GitHub release, or manual workflow dispatch. Pushes to `main` build changed images as a smoke check without pushing.
+
+On tag push and release, CI additionally composes `catalog.json` from `catalog.yaml` plus the built image digests and uploads it to S3-compatible object storage:
+
+- `${PREFIX}/catalog.json`: the current catalog, overwritten each release
+- `${PREFIX}/history/<tag>.json`: an immutable copy per release
+
+Consumers use this to discover published images. The contract (top-level `version: 1`, bumped on breaking changes):
+
+```json
+{
+  "version": 1,
+  "source": { "repo": "latere-ai/images", "commit": "<sha>", "tag": "v0.0.13" },
+  "images": [
+    {
+      "name": "sandbox-gui",
+      "ref": "ghcr.io/latere-ai/sandbox-gui:v0.0.13",
+      "digest": "sha256:...",
+      "platforms": ["linux/amd64"],
+      "label": "GUI",
+      "description": "...",
+      "defaults": { "cpu_milli": 500, "memory_mb": 1024, "width": 1280, "height": 800 }
+    }
+  ]
+}
+```
+
+`ref` is always the immutable release tag, never `latest`. `defaults` is optional advisory resource hints.
+
+Publication is configured through repository secrets: `CATALOG_S3_ENDPOINT`, `CATALOG_S3_REGION`, `CATALOG_S3_BUCKET`, `CATALOG_S3_PREFIX`, `CATALOG_S3_ACCESS_KEY`, `CATALOG_S3_SECRET_KEY`. A release fails if they are unset.
 
 ## Image contract
 
