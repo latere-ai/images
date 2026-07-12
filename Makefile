@@ -1,22 +1,21 @@
 SHELL   := /bin/bash
 RUNTIME := podman
 
-BASE_IMAGE         := sandbox-base:latest
-BASE_GHCR_IMAGE    := ghcr.io/latere-ai/sandbox-base:latest
-GUI_IMAGE          := sandbox-gui:latest
-GUI_GHCR_IMAGE     := ghcr.io/latere-ai/sandbox-gui:latest
+# Image inventory lives in catalog.yaml; targets are the context dirs
+# (make base, make gui). catalog.sh resolves FROM chains and tags each
+# image as <name>:latest and <registry>/<name>:latest.
+CONTEXTS := $(shell yq -r '.images[].context' catalog.yaml)
 
-.PHONY: all base gui clean
+.PHONY: all test clean $(CONTEXTS)
 
-all: gui
+all:
+	RUNTIME=$(RUNTIME) ./catalog.sh build
 
-base:
-	$(RUNTIME) build -t $(BASE_IMAGE) -t $(BASE_GHCR_IMAGE) -f base/Dockerfile base/
+$(CONTEXTS):
+	RUNTIME=$(RUNTIME) ./catalog.sh build $@
 
-gui: base
-	$(RUNTIME) build --build-arg BASE_IMAGE=$(BASE_IMAGE) \
-		-t $(GUI_IMAGE) -t $(GUI_GHCR_IMAGE) -f gui/Dockerfile gui/
+test:
+	sh catalog_test.sh
 
 clean:
-	-$(RUNTIME) rmi $(GUI_IMAGE) $(GUI_GHCR_IMAGE) \
-		$(BASE_IMAGE) $(BASE_GHCR_IMAGE)
+	RUNTIME=$(RUNTIME) ./catalog.sh clean

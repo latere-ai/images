@@ -126,11 +126,14 @@ compose() {
 # build [context...] — local build via $RUNTIME, tagging <name>:latest and
 # <registry>/<name>:latest. No args builds everything in catalog order;
 # with args, each context's `from` chain builds first.
+BUILT=" "
 build_one() {
     local ctx="$1" entry name from args=()
     entry=$(json | jq -c ".images[] | select(.context == \"$ctx\")")
     [[ -n "$entry" ]] || { echo "build: unknown context '$ctx'" >&2; exit 1; }
     name=$(jq -r '.name' <<<"$entry")
+    [[ "$BUILT" == *" $name "* ]] && return 0
+    BUILT+="$name "
     from=$(jq -r '.from // ""' <<<"$entry")
     if [[ -n "$from" ]]; then
         build_one "$(json | jq -r ".images[] | select(.name == \"$from\") | .context")"
@@ -139,7 +142,7 @@ build_one() {
     local reg
     reg=$(json | jq -r '.registry')
     echo "build: $name ($ctx)"
-    $RUNTIME build "${args[@]}" -t "$name:latest" -t "$reg/$name:latest" \
+    $RUNTIME build ${args[@]+"${args[@]}"} -t "$name:latest" -t "$reg/$name:latest" \
         -f "$ctx/Dockerfile" "$ctx/"
 }
 

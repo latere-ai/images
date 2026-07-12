@@ -4,10 +4,11 @@
 # Usage: sh test.sh [tag]    (default: latest)
 #
 set -euo pipefail
+cd "$(dirname "$0")"
 
 TAG="${1:-latest}"
 RUNTIME="${RUNTIME:-podman}"
-REGISTRY="${REGISTRY:-ghcr.io/latere-ai}"
+REGISTRY="${REGISTRY:-$(yq -r '.registry' catalog.yaml)}"
 FAILURES=0
 
 pass() { printf "  \033[32mPASS\033[0m %s\n" "$1"; }
@@ -18,6 +19,13 @@ run_in() {
     local image="$1"; shift
     $RUNTIME run --rm --entrypoint bash "$image" -c "$*" 2>&1
 }
+
+# --- Catalog coverage: every cataloged image must exist and run ---
+section "catalog images @ ${TAG}"
+for name in $(yq -r '.images[].name' catalog.yaml); do
+    run_in "${REGISTRY}/${name}:${TAG}" 'true' >/dev/null 2>&1 \
+        && pass "image runnable: $name" || fail "image not runnable: $name"
+done
 
 # --- Base image ---
 section "sandbox-base:${TAG}"
