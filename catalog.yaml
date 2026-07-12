@@ -1,0 +1,35 @@
+# Image inventory. Single source of truth for the sandbox images this
+# repo builds: the CI build matrix, the Makefile targets, test.sh, and
+# the published catalog.json all derive from this file.
+#
+# Fields per image:
+#   name        (required) image name on the registry, e.g. sandbox-gui
+#   context     (required) build context directory containing the Dockerfile
+#   platforms   (required) list of target platforms
+#   from        (optional) name of the in-repo image this one builds FROM;
+#               passed as the BASE_IMAGE build-arg, forces a rebuild when
+#               the named image rebuilds, and must be declared earlier in
+#               this list (build order is list order)
+#   label       (required) short human-readable name shown by consumers
+#   description (required) one-line summary shown by consumers
+#   defaults    (optional) advisory per-image resource hints consumers may
+#               apply at sandbox creation: cpu_milli, memory_mb, width, height
+version: 1
+registry: ghcr.io/latere-ai
+images:
+  - name: sandbox-base
+    context: base
+    platforms: [linux/amd64, linux/arm64]
+    label: Base
+    description: Ubuntu 24.04 with Go, Node.js 22, Python 3, and agent tooling.
+  - name: sandbox-gui
+    context: gui
+    platforms: [linux/amd64]
+    from: sandbox-base
+    label: GUI
+    description: Base plus Xvfb, x11vnc, noVNC, XFCE, and Chrome for Testing.
+    defaults:
+      cpu_milli: 500
+      memory_mb: 1024
+      width: 1280
+      height: 800
