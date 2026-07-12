@@ -1,6 +1,6 @@
 ---
 title: Image catalog manifest and publication
-status: drafted
+status: implemented
 depends_on: []
 affects:
   - catalog.yaml
@@ -11,6 +11,7 @@ affects:
 effort: medium
 created: 2026-07-12
 updated: 2026-07-12
+implemented: 2026-07-12
 author: changkun
 dispatched_task_id: null
 ---
@@ -177,3 +178,26 @@ top-level `version` field on breaking changes.
 
 Revert the spec commits; `release.yml` recovers its literal matrix from
 history. Published catalog objects are inert data and can stay.
+
+## Outcome (2026-07-12)
+
+Implemented across four commits. Deviations from the plan, all
+deliberate:
+
+- All derivation logic is consolidated in one `catalog.sh`
+  (`lint | filters | matrix | compose | build | clean`) so the workflow,
+  Makefile, and local builds share one code path. `catalog_test.sh`
+  (25 checks) covers filters, matrix propagation along `from` edges,
+  compose digest-joining and failure on a missing digest, and lint
+  fixtures including the workflow grep gate; it runs in the CI catalog
+  job on every event.
+- `catalog.yaml` gained a `registry` field so the registry is also
+  catalog-driven; lint enforces `from` targets are declared earlier,
+  which makes list order the build order (single-pass propagation).
+- The Makefile delegates to `catalog.sh build` instead of deriving
+  per-image vars via yq; targets are the context dirs, unchanged UX.
+- Acceptance 3 and 5 are verified locally (compose against fake digest
+  dirs; matrix/lint against a fixture with an extra image) but not yet
+  in a live CI run: the next `v*` tag is the first real exercise, and
+  it will fail deliberately in publish-catalog until the `CATALOG_S3_*`
+  repository secrets are configured.
