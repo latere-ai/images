@@ -38,14 +38,21 @@ m=$(./catalog.sh matrix --all)
 [[ "$(jq -r '.registry' <<<"$m")" == "ghcr.io/latere-ai" ]] \
     && pass "--all: registry surfaced" || fail "--all: registry missing"
 
+[[ "$(jq -r '.deps.image[1].name' <<<"$m")" == "sandbox-harness" && "$(jq -r '.deps.image[1].platforms' <<<"$m")" == "linux/amd64,linux/arm64" ]] \
+    && pass "--all: harness in deps, multi-arch" || fail "--all: harness wrong: $m"
+
 m=$(./catalog.sh matrix '["sandbox-base"]')
-[[ "$(jq -r '.any_root' <<<"$m")" == "true" && "$(jq -r '.any_dep' <<<"$m")" == "true" ]] \
-    && pass "base change propagates to gui (from edge)" \
-    || fail "base change must rebuild gui: $m"
+[[ "$(jq -r '.any_root' <<<"$m")" == "true" && "$(jq -r '.deps.image | length' <<<"$m")" == "2" ]] \
+    && pass "base change propagates to gui + harness (from edges)" \
+    || fail "base change must rebuild both deps: $m"
 
 m=$(./catalog.sh matrix '["sandbox-gui"]')
 [[ "$(jq -r '.any_root' <<<"$m")" == "false" && "$(jq -r '.deps.image | length' <<<"$m")" == "1" ]] \
     && pass "gui-only change builds gui alone" || fail "gui-only change wrong: $m"
+
+m=$(./catalog.sh matrix '["sandbox-harness"]')
+[[ "$(jq -r '.deps.image | length' <<<"$m")" == "1" && "$(jq -r '.deps.image[0].name' <<<"$m")" == "sandbox-harness" ]] \
+    && pass "harness-only change builds harness alone" || fail "harness-only change wrong: $m"
 
 m=$(./catalog.sh matrix '[]')
 [[ "$(jq -r '.any_root' <<<"$m")" == "false" && "$(jq -r '.any_dep' <<<"$m")" == "false" ]] \
@@ -56,6 +63,7 @@ section "compose"
 mkdir -p "$TMP/digests"
 printf '{"name":"sandbox-base","digest":"sha256:aaa"}' > "$TMP/digests/sandbox-base.json"
 printf '{"name":"sandbox-gui","digest":"sha256:bbb"}' > "$TMP/digests/sandbox-gui.json"
+printf '{"name":"sandbox-harness","digest":"sha256:ccc"}' > "$TMP/digests/sandbox-harness.json"
 
 c=$(./catalog.sh compose v9.9.9 deadbeef "$TMP/digests")
 [[ "$(jq -r '.version' <<<"$c")" == "1" ]] \

@@ -33,3 +33,9 @@ images:
       memory_mb: 1024
       width: 1280
       height: 800
+  - name: sandbox-harness
+    context: harness
+    platforms: [linux/amd64, linux/arm64]
+    from: sandbox-base
+    label: Harness
+    description: Base plus the Claude Code and Codex CLIs for agent workloads.

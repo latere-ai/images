@@ -125,6 +125,32 @@ run_in "$GUI" 'grep -q -- "-noxdamage" /usr/local/bin/gui-supervisor && grep -q 
     && pass "supervisor: x11vnc carries -noxdamage and -noxfixes (compositor workarounds)" \
     || fail "supervisor: x11vnc must pass -noxdamage and -noxfixes to survive mutter as the WM"
 
+# --- Harness image ---
+section "sandbox-harness:${TAG}"
+HARNESS="${REGISTRY}/sandbox-harness:${TAG}"
+
+# The version pins live only in the Dockerfile ARGs; assert the shipped
+# CLIs match them so a bump can't silently fail to take effect.
+CLAUDE_PIN=$(sed -n 's/^ARG CLAUDE_CODE_VERSION=//p' harness/Dockerfile)
+CODEX_PIN=$(sed -n 's/^ARG CODEX_VERSION=//p' harness/Dockerfile)
+
+out=$(run_in "$HARNESS" 'claude --version') && [[ "$out" == *"$CLAUDE_PIN"* ]] \
+    && pass "claude: $out" || fail "claude version (want $CLAUDE_PIN, got: $out)"
+
+out=$(run_in "$HARNESS" 'codex --version') && [[ "$out" == *"$CODEX_PIN"* ]] \
+    && pass "codex: $out" || fail "codex version (want $CODEX_PIN, got: $out)"
+
+out=$(run_in "$HARNESS" 'whoami') && [[ "$out" == "agent" ]] \
+    && pass "user: agent" || fail "user is $out, expected agent"
+
+# CLIs must live outside $HOME so a volume mounted over /home/agent
+# cannot mask them.
+out=$(run_in "$HARNESS" 'which claude && which codex') && [[ "$out" != *"/home/"* ]] \
+    && pass "CLIs installed system-wide" || fail "CLIs under /home: $out"
+
+run_in "$HARNESS" 'test -d ~/.claude && test -d ~/.codex' >/dev/null 2>&1 \
+    && pass "CLI state dirs pre-created" || fail "~/.claude or ~/.codex missing"
+
 # --- Summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
