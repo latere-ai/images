@@ -15,16 +15,32 @@ pass() { printf "  \033[32mPASS\033[0m %s\n" "$1"; }
 fail() { printf "  \033[31mFAIL\033[0m %s\n" "$1"; FAILURES=$((FAILURES + 1)); }
 section() { printf "\n\033[1m%s\033[0m\n" "$1"; }
 
+# podman warns on stdout-adjacent stderr when running a non-native
+# platform image (the amd64-only gui image on an arm64 host); strip it
+# so exact-match assertions see only the command's output.
 run_in() {
+    local image="$1" out rc; shift
+    out=$($RUNTIME run --rm --entrypoint bash "$image" -c "$*" 2>&1); rc=$?
+    printf '%s\n' "$out" | grep -v '^WARNING: image platform'
+    return $rc
+}
+
+run_in_root() {
     local image="$1"; shift
-    $RUNTIME run --rm --entrypoint bash "$image" -c "$*" 2>&1
+    $RUNTIME run --rm --user root --entrypoint bash "$image" -c "$*" 2>&1
 }
 
 # --- Catalog coverage: every cataloged image must exist and run ---
+# Pre-pull with an explicit platform: podman refuses to auto-pull a
+# non-native image (e.g. the amd64-only gui image on an arm64 host), so
+# pick the host platform when the image ships it, else its first one.
 section "catalog images @ ${TAG}"
+HOST_PLATFORM="linux/$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
 for name in $(yq -r '.images[].name' catalog.yaml); do
-    run_in "${REGISTRY}/${name}:${TAG}" 'true' >/dev/null 2>&1 \
-        && pass "image runnable: $name" || fail "image not runnable: $name"
+    platform=$(yq -r ".images[] | select(.name==\"$name\") | .platforms | (map(select(. == \"$HOST_PLATFORM\")) + .)[0]" catalog.yaml)
+    $RUNTIME pull -q --platform "$platform" "${REGISTRY}/${name}:${TAG}" >/dev/null 2>&1 \
+        && run_in "${REGISTRY}/${name}:${TAG}" 'true' >/dev/null 2>&1 \
+        && pass "image runnable: $name ($platform)" || fail "image not runnable: $name"
 done
 
 # --- Base image ---
@@ -51,7 +67,8 @@ out=$(run_in "$BASE" 'pwd') && [[ "$out" == "/workspace" ]] \
 # Prompt must surface CELLA_HOST (the runtime-injected instance name)
 # and fall back to the kernel hostname when it is unset, so pooled
 # containers show the right name without a hostname change.
-run_in "$BASE" 'grep -q CELLA_HOST /etc/skel/.bashrc && grep -q CELLA_HOST /root/.bashrc' >/dev/null 2>&1 \
+# /root is 0700 and the image runs as agent, so this check needs root.
+run_in_root "$BASE" 'grep -q CELLA_HOST /etc/skel/.bashrc && grep -q CELLA_HOST /root/.bashrc' >/dev/null 2>&1 \
     && pass "prompt: /etc/skel and /root .bashrc patched" \
     || fail "prompt: rc files missing CELLA_HOST"
 
@@ -105,13 +122,18 @@ out=$(run_in "$GUI" 'printf "%s %s" "$DISPLAY" "$SCREEN_GEOMETRY"') && [[ "$out"
 run_in "$GUI" 'test -d /usr/share/novnc && test -f /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
     && pass "novnc + supervisor installed" || fail "novnc or supervisor missing"
 
+# Read the supervisor once and assert host-side: in-container grep
+# segfaults sporadically under qemu emulation (the gui image is
+# amd64-only, so arm64 hosts run it emulated).
+supervisor=$(run_in "$GUI" 'cat /usr/local/bin/gui-supervisor')
+
 # Regression: the supervisor must not pass mutter flags that mutter
 # rejects. --no-cursor was added speculatively and is not a valid mutter
 # option; with it, mutter exits 1 immediately, the supervisor restarts it
 # once per second, and each restart leaks dbus + X clients on Xvfb until
 # the display hits its "Maximum number of clients reached" limit and the
 # readiness probe can no longer reach :0.
-run_in "$GUI" 'grep -F -- "--no-cursor" /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
+grep -qF -- "--no-cursor" <<<"$supervisor" \
     && fail "supervisor: mutter --no-cursor is invalid and will restart-loop" \
     || pass "supervisor: no invalid mutter --no-cursor flag"
 
@@ -121,7 +143,7 @@ run_in "$GUI" 'grep -F -- "--no-cursor" /usr/local/bin/gui-supervisor' >/dev/nul
 # greeting, so noVNC stays at "CONNECTING" forever and the desktop tab
 # renders an empty black canvas. -noxdamage and -noxfixes route around
 # both extensions; pair them so a future cleanup doesn't drop one.
-run_in "$GUI" 'grep -q -- "-noxdamage" /usr/local/bin/gui-supervisor && grep -q -- "-noxfixes" /usr/local/bin/gui-supervisor' >/dev/null 2>&1 \
+grep -q -- "-noxdamage" <<<"$supervisor" && grep -q -- "-noxfixes" <<<"$supervisor" \
     && pass "supervisor: x11vnc carries -noxdamage and -noxfixes (compositor workarounds)" \
     || fail "supervisor: x11vnc must pass -noxdamage and -noxfixes to survive mutter as the WM"
 
