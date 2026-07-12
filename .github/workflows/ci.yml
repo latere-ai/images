@@ -1,0 +1,109 @@
+name: CI
+
+# Branch CI for the image catalog: lint catalog.yaml, run the tooling
+# tests, and smoke-build (no push) the images whose inputs changed.
+# Releases are tag-driven through the central latere-ai/ci
+# images-release pipeline; see release.yml.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Lint the catalog, run the tooling tests, and derive the build
+  # matrices for the images whose context dirs changed. A change to an
+  # image propagates to everything that FROMs it.
+  catalog:
+    runs-on: ubuntu-latest
+    outputs:
+      registry: ${{ steps.compute.outputs.registry }}
+      roots: ${{ steps.compute.outputs.roots }}
+      deps: ${{ steps.compute.outputs.deps }}
+      any_root: ${{ steps.compute.outputs.any_root }}
+      any_dep: ${{ steps.compute.outputs.any_dep }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint catalog
+        run: |
+          ./catalog.sh lint
+          bash catalog_test.sh
+      - name: Generate change filters
+        id: gen
+        run: |
+          {
+            echo 'filters<<CATALOG_EOF'
+            ./catalog.sh filters
+            echo 'CATALOG_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: ${{ steps.gen.outputs.filters }}
+      - name: Compute build matrices
+        id: compute
+        env:
+          CHANGES: ${{ steps.filter.outputs.changes }}
+        run: |
+          set -euo pipefail
+          matrix=$(./catalog.sh matrix "${CHANGES:-[]}")
+          {
+            echo "registry=$(jq -r '.registry' <<<"$matrix")"
+            echo "roots=$(jq -c '.roots' <<<"$matrix")"
+            echo "deps=$(jq -c '.deps' <<<"$matrix")"
+            echo "any_root=$(jq -r '.any_root' <<<"$matrix")"
+            echo "any_dep=$(jq -r '.any_dep' <<<"$matrix")"
+          } >> "$GITHUB_OUTPUT"
+
+  build-roots:
+    needs: catalog
+    if: needs.catalog.outputs.any_root == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.catalog.outputs.roots) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Smoke build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          platforms: ${{ matrix.image.platforms }}
+          push: false
+          tags: ${{ needs.catalog.outputs.registry }}/${{ matrix.image.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+  build-deps:
+    needs: [catalog, build-roots]
+    if: >-
+      always()
+      && needs.catalog.outputs.any_dep == 'true'
+      && (needs.build-roots.result == 'success' || needs.build-roots.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.catalog.outputs.deps) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Smoke build
+        # FROM the published :latest of the in-repo base; the release
+        # pipeline builds FROM the tag it just pushed instead.
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          platforms: ${{ matrix.image.platforms }}
+          push: false
+          tags: ${{ needs.catalog.outputs.registry }}/${{ matrix.image.name }}:ci
+          build-args: |
+            BASE_IMAGE=${{ needs.catalog.outputs.registry }}/${{ matrix.image.from }}:latest
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}

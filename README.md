@@ -8,6 +8,8 @@ Container images for the Cella sandbox platform.
   `ghcr.io/latere-ai/sandbox-base`
 - **sandbox-gui**: base + GUI/VNC stack for computer-use workflows
   `ghcr.io/latere-ai/sandbox-gui`
+- **sandbox-harness**: base + agent CLIs (Claude Code, Codex) for agent workloads
+  `ghcr.io/latere-ai/sandbox-harness`
 
 The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix, the Makefile targets, `test.sh`, and the published catalog all derive from it. To add an image: create a context directory with a `Dockerfile`, add one entry to `catalog.yaml`, done. `catalog.yaml` documents every field inline; `./catalog.sh lint` validates it (and `bash catalog_test.sh` tests the tooling itself).
 
@@ -16,7 +18,7 @@ The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix
 The base image (Ubuntu 24.04, multi-arch amd64/arm64) provides:
 
 - **OS**: Ubuntu 24.04 with `build-essential`, `git`, `curl`, `wget`, `vim`, `jq`, `ripgrep`, `openssh-client`
-- **Go**: 1.25.7 + tooling (gopls, goimports, delve, golangci-lint, staticcheck, gosec, and more)
+- **Go**: pinned via the `GO_VERSION` ARG in `base/Dockerfile`, plus tooling (gopls, goimports, delve, golangci-lint, staticcheck, gosec, and more)
 - **Node.js**: 22 LTS
 - **Python**: 3 with pip and venv
 - **Non-root user**: `agent` (UID 1000), passwordless sudo
@@ -26,6 +28,9 @@ Image-specific additions:
 - **sandbox-gui**
   - Xvfb display, XFCE desktop session, x11vnc, websockify/noVNC, xdotool, ImageMagick, and Chrome for Testing
   - Exposes noVNC on port `6080` and defaults to `SCREEN_GEOMETRY=1280x800x24`
+- **sandbox-harness**
+  - Claude Code and Codex CLIs, installed system-wide (versions pinned via ARGs in `harness/Dockerfile`)
+  - Pre-created `~/.claude` and `~/.codex` so a single credential file can be bind-mounted
 
 ## Using pre-built images
 
@@ -117,9 +122,9 @@ docker run --rm -it \
 
 ## Releases and the published catalog
 
-Images publish to GHCR on tag push (`v*`), GitHub release, or manual workflow dispatch. Pushes to `main` build changed images as a smoke check without pushing.
+Releases are tag-driven through the central [latere-ai/ci](https://github.com/latere-ai/ci) `images-release` pipeline (the same reusable-pipeline approach every latere.ai project uses; this repo keeps only the thin caller in `release.yml`). Pushing a `vX.Y.Z` tag builds and pushes every cataloged image in dependency order, publishes the catalog, smokes the published images with `test.sh`, and publishes a GitHub release whose notes carry the digest table and the full smoke output as evidence. Branch pushes run `ci.yml` instead: catalog lint, tooling tests, and smoke builds of changed images, nothing pushed.
 
-On tag push and release, CI additionally composes `catalog.json` from `catalog.yaml` plus the built image digests and uploads it to S3-compatible object storage:
+The pipeline composes `catalog.json` from `catalog.yaml` plus the built image digests and uploads it to S3-compatible object storage:
 
 - `${PREFIX}/catalog.json`: the current catalog, overwritten each release
 - `${PREFIX}/history/<tag>.json`: an immutable copy per release
