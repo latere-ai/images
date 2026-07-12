@@ -9,7 +9,7 @@ Container images for the Cella sandbox platform.
 - **sandbox-gui**: base + GUI/VNC stack for computer-use workflows
   `ghcr.io/latere-ai/sandbox-gui`
 
-The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix, the Makefile targets, `test.sh`, and the published catalog all derive from it. To add an image: create a context directory with a `Dockerfile`, add one entry to `catalog.yaml`, done. `catalog.yaml` documents every field inline; `./catalog.sh lint` validates it (and `sh catalog_test.sh` tests the tooling itself).
+The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix, the Makefile targets, `test.sh`, and the published catalog all derive from it. To add an image: create a context directory with a `Dockerfile`, add one entry to `catalog.yaml`, done. `catalog.yaml` documents every field inline; `./catalog.sh lint` validates it (and `bash catalog_test.sh` tests the tooling itself).
 
 ## What's inside
 
@@ -24,7 +24,7 @@ The base image (Ubuntu 24.04, multi-arch amd64/arm64) provides:
 Image-specific additions:
 
 - **sandbox-gui**
-  - Xvfb display, mutter window manager, x11vnc, websockify/noVNC, xdotool, ImageMagick, and Chrome for Testing
+  - Xvfb display, XFCE desktop session, x11vnc, websockify/noVNC, xdotool, ImageMagick, and Chrome for Testing
   - Exposes noVNC on port `6080` and defaults to `SCREEN_GEOMETRY=1280x800x24`
 
 ## Using pre-built images
@@ -82,7 +82,7 @@ The container runs as the non-root `agent` user with `/home/agent` as `$HOME`. I
 
 ### GUI sandbox
 
-`sandbox-gui` is an image for computer-use workflows. It starts an Xvfb display, a lightweight window manager, x11vnc, and a noVNC websocket bridge.
+`sandbox-gui` is an image for computer-use workflows. It starts an Xvfb display, a lightweight XFCE desktop, x11vnc, and a noVNC websocket bridge.
 
 The GUI image is published for `linux/amd64` because Chrome for Testing does not ship a Linux arm64 archive. On arm64 hosts, run it with `--platform linux/amd64`.
 
@@ -99,7 +99,7 @@ docker run --rm -it \
 
 Then visit `http://localhost:6080/vnc.html`. The entrypoint creates `~/.vncpass` on first boot and prints the generated password to stderr for standalone use. Set `VNC_PASSWORD` or replace that file when orchestration owns attach credentials.
 
-Launch Chromium inside the display:
+Launch Chromium directly inside the display:
 
 ```bash
 docker run --rm -it \
@@ -155,4 +155,4 @@ These details are relevant if you are building custom images on top of the sandb
 - **Working directory**: `/workspace` (workspaces are mounted as subdirectories)
 - **User**: non-root `agent` (UID 1000), passwordless sudo, `$HOME=/home/agent`
 - **Prompt**: the shell prompt prefers the `CELLA_HOST` env var (the runtime-injected instance name) and falls back to the kernel hostname when unset
-- **GUI mode**: `sandbox-gui` starts its own display on `DISPLAY=:0` and serves noVNC from port `6080`; override `SCREEN_GEOMETRY` to change the boot-time display size
+- **GUI mode**: `sandbox-gui` starts its own XFCE desktop on `DISPLAY=:0` and serves noVNC from port `6080`; override `SCREEN_GEOMETRY` to change the boot-time display size

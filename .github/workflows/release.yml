@@ -50,7 +50,7 @@ jobs:
       - name: Lint catalog
         run: |
           ./catalog.sh lint
-          sh catalog_test.sh
+          bash catalog_test.sh
       - name: Generate change filters
         id: gen
         run: |

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Tests for catalog.sh against the live catalog.yaml plus fixtures.
-# Usage: sh catalog_test.sh
+# Usage: bash catalog_test.sh
 #
 set -euo pipefail
 cd "$(dirname "$0")"
