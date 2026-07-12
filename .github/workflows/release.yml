@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Extra tag to publish (e.g. v0.0.8-rebuild). Empty = use semver/latest only."
+        description: "Extra tag to publish on non-base images (e.g. v0.0.8-rebuild). Empty = use semver/latest only."
         required: false
         type: string
       rebuild_base:
-        description: "Also rebuild the base image."
+        description: "Also rebuild the base (root) images."
         required: false
         type: boolean
         default: false
@@ -20,116 +20,85 @@ on:
   release:
     types: [published]
 
-# Publish to GHCR only on release-producing events (tag push, GitHub release,
-# or manual dispatch). Pushes to main run the same build matrix as a CI
-# smoke check but do not push the resulting images.
+# The image inventory lives in catalog.yaml; this workflow carries no
+# image names. Publish to GHCR only on release-producing events (tag
+# push, GitHub release, or manual dispatch). Pushes to main run the same
+# build matrix as a CI smoke check but do not push the resulting images.
+# catalog.json is published to object storage on tag push and release
+# only, where every image carries an immutable semver ref.
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # Detect which image dirs changed on branch pushes so we can skip
-  # matrix entries whose inputs are unchanged. Release-producing events
-  # (tag push, release, dispatch) always build everything.
-  changes:
+  # Lint catalog.yaml, then derive the change filters and the two-stage
+  # build matrices (roots = no `from`; deps = FROM a root) from it.
+  # Branch pushes build only changed images; release-producing events
+  # build everything.
+  catalog:
     runs-on: ubuntu-latest
     outputs:
-      base: ${{ steps.compute.outputs.base }}
-      sandboxes: ${{ steps.compute.outputs.sandboxes }}
-      any_sandbox: ${{ steps.compute.outputs.any_sandbox }}
+      registry: ${{ steps.compute.outputs.registry }}
+      roots: ${{ steps.compute.outputs.roots }}
+      deps: ${{ steps.compute.outputs.deps }}
+      any_root: ${{ steps.compute.outputs.any_root }}
+      any_dep: ${{ steps.compute.outputs.any_dep }}
+      push: ${{ steps.compute.outputs.push }}
     steps:
       - uses: actions/checkout@v4
+      - name: Lint catalog
+        run: |
+          ./catalog.sh lint
+          sh catalog_test.sh
+      - name: Generate change filters
+        id: gen
+        run: |
+          {
+            echo 'filters<<CATALOG_EOF'
+            ./catalog.sh filters
+            echo 'CATALOG_EOF'
+          } >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v3
         id: filter
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
         with:
-          filters: |
-            base:
-              - 'base/**'
-            gui:
-              - 'gui/**'
-      - id: compute
+          filters: ${{ steps.gen.outputs.filters }}
+      - name: Compute build matrices
+        id: compute
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
-          BASE: ${{ steps.filter.outputs.base }}
-          GUI: ${{ steps.filter.outputs.gui }}
+          CHANGES: ${{ steps.filter.outputs.changes }}
         run: |
-          set -e
+          set -euo pipefail
           if [[ "$EVENT" == "push" && "$REF" == refs/heads/* ]]; then
-            base=$BASE; gui=$GUI
+            matrix=$(./catalog.sh matrix "${CHANGES:-[]}")
           else
-            base=true; gui=true
+            matrix=$(./catalog.sh matrix --all)
           fi
-          # Base change propagates to all sandboxes (they FROM it).
-          if [[ "$base" == "true" ]]; then
-            gui=true
-          fi
-          entries=()
-          [[ "$gui"    == "true" ]] && entries+=('{"name":"sandbox-gui","context":"gui","platforms":"linux/amd64"}')
-          joined=$(IFS=,; echo "${entries[*]}")
-          echo "base=$base" >> "$GITHUB_OUTPUT"
-          echo "sandboxes={\"image\":[${joined}]}" >> "$GITHUB_OUTPUT"
-          if [[ ${#entries[@]} -gt 0 ]]; then
-            echo "any_sandbox=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "registry=$(jq -r '.registry' <<<"$matrix")"
+            echo "roots=$(jq -c '.roots' <<<"$matrix")"
+            echo "deps=$(jq -c '.deps' <<<"$matrix")"
+            echo "any_root=$(jq -r '.any_root' <<<"$matrix")"
+            echo "any_dep=$(jq -r '.any_dep' <<<"$matrix")"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" == "workflow_dispatch" || "$EVENT" == "release" || ( "$EVENT" == "push" && "$REF" == refs/tags/* ) ]]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
           else
-            echo "any_sandbox=false" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build-base:
-    needs: changes
+  build-roots:
+    needs: catalog
     if: >-
       (github.event_name != 'workflow_dispatch' || inputs.rebuild_base)
-      && (
-        github.event_name != 'push'
-        || !startsWith(github.ref, 'refs/heads/')
-        || needs.changes.outputs.base == 'true'
-      )
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute base image tags
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/sandbox-base
-          tags: |
-            type=semver,pattern=v{{version}}
-            type=semver,pattern=v{{major}}.{{minor}}
-            type=raw,value=latest
-
-      - name: Build and push base
-        uses: docker/build-push-action@v6
-        with:
-          context: base
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=sandbox-base
-          cache-to: type=gha,mode=max,scope=sandbox-base
-
-  build-sandboxes:
-    needs: [changes, build-base]
-    if: >-
-      always()
-      && needs.changes.outputs.any_sandbox == 'true'
-      && (needs.build-base.result == 'success' || needs.build-base.result == 'skipped')
+      && needs.catalog.outputs.any_root == 'true'
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.sandboxes) }}
+      matrix: ${{ fromJSON(needs.catalog.outputs.roots) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,7 +116,64 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
+          images: ${{ needs.catalog.outputs.registry }}/${{ matrix.image.name }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          platforms: ${{ matrix.image.platforms }}
+          push: ${{ needs.catalog.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+      - name: Record digest
+        if: needs.catalog.outputs.push == 'true'
+        run: |
+          mkdir -p /tmp/digest
+          jq -n --arg name '${{ matrix.image.name }}' --arg digest '${{ steps.build.outputs.digest }}' \
+            '{name: $name, digest: $digest}' > "/tmp/digest/${{ matrix.image.name }}.json"
+      - name: Upload digest
+        if: needs.catalog.outputs.push == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image.name }}
+          path: /tmp/digest/*.json
+
+  build-deps:
+    needs: [catalog, build-roots]
+    if: >-
+      always()
+      && needs.catalog.outputs.any_dep == 'true'
+      && (needs.build-roots.result == 'success' || needs.build-roots.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.catalog.outputs.deps) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.catalog.outputs.registry }}/${{ matrix.image.name }}
           tags: |
             type=semver,pattern=v{{version}}
             type=semver,pattern=v{{major}}.{{minor}}
@@ -155,14 +181,72 @@ jobs:
             type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.image.context }}
           platforms: ${{ matrix.image.platforms }}
-          push: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'release' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) }}
+          push: ${{ needs.catalog.outputs.push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/sandbox-base:latest
+            BASE_IMAGE=${{ needs.catalog.outputs.registry }}/${{ matrix.image.from }}:latest
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+      - name: Record digest
+        if: needs.catalog.outputs.push == 'true'
+        run: |
+          mkdir -p /tmp/digest
+          jq -n --arg name '${{ matrix.image.name }}' --arg digest '${{ steps.build.outputs.digest }}' \
+            '{name: $name, digest: $digest}' > "/tmp/digest/${{ matrix.image.name }}.json"
+      - name: Upload digest
+        if: needs.catalog.outputs.push == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image.name }}
+          path: /tmp/digest/*.json
+
+  # Compose catalog.json from catalog.yaml plus the recorded digests and
+  # publish it to S3-compatible object storage. Tag push and release
+  # only: dispatch builds may carry no immutable semver ref, and the
+  # catalog contract pins every image to one.
+  publish-catalog:
+    needs: [catalog, build-roots, build-deps]
+    if: >-
+      github.event_name == 'release'
+      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - name: Compose catalog.json
+        id: compose
+        env:
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+        run: |
+          ./catalog.sh compose "$TAG" "$GITHUB_SHA" digests > catalog.json
+          jq . catalog.json
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Upload to object storage
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CATALOG_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CATALOG_S3_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.CATALOG_S3_REGION }}
+          ENDPOINT: ${{ secrets.CATALOG_S3_ENDPOINT }}
+          BUCKET: ${{ secrets.CATALOG_S3_BUCKET }}
+          PREFIX: ${{ secrets.CATALOG_S3_PREFIX }}
+          TAG: ${{ steps.compose.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BUCKET" ]]; then
+            echo "CATALOG_S3_* secrets are not configured; a release must publish the catalog." >&2
+            exit 1
+          fi
+          aws s3 cp catalog.json "s3://${BUCKET}/${PREFIX}/catalog.json" --endpoint-url "$ENDPOINT"
+          aws s3 cp catalog.json "s3://${BUCKET}/${PREFIX}/history/${TAG}.json" --endpoint-url "$ENDPOINT"
