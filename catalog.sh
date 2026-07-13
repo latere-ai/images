@@ -58,6 +58,14 @@ lint() {
             || err "$n: unknown defaults key"
     done
 
+    # The pipelines build three FROM-depth stages (0, 1, 2); a deeper
+    # chain would race its parent inside the last stage job, so adding
+    # one must be an explicit pipeline change, not a catalog edit.
+    json | jq -e '(reduce .images[] as $i ({};
+            . + {($i.name): (if $i.from == null then 0 else ((.[$i.from] // 2) + 1) end)}))
+        | to_entries | map(select(.value > 2)) | length == 0' >/dev/null \
+        || err "FROM chain deeper than 3 stages (depth > 2); add a build stage to the pipelines first"
+
     # The workflow must stay fully catalog-driven: no image name may
     # appear in it as a literal.
     if [[ -f "$workflow" ]]; then
@@ -79,7 +87,11 @@ filters() {
 # matrix <changed> — <changed> is a JSON array of image names (from
 # paths-filter) or --all. Rebuilds propagate along `from` edges; a single
 # in-order pass suffices because lint enforces that `from` targets are
-# declared earlier. Roots (no `from`) and deps build as separate stages.
+# declared earlier. Images build in stages by FROM depth (stage 0 = no
+# `from`, stage N = FROM a stage N-1 image); the pipelines wire three
+# stage jobs and lint rejects deeper chains. The roots/deps keys are the
+# legacy two-stage view (stage 0 / everything deeper) kept for pipelines
+# pinned before stages existed.
 matrix() {
     local changed="${1:?usage: catalog.sh matrix <changed-json|--all>}"
     if [[ "$changed" == "--all" ]]; then
@@ -87,17 +99,20 @@ matrix() {
     fi
     json | jq -c --argjson c0 "$changed" '
         .registry as $reg
+        | (.images | reduce .[] as $i ({};
+            . + {($i.name): (if $i.from == null then 0 else (.[$i.from] + 1) end)})) as $depth
         | (.images | reduce .[] as $i ($c0;
             if (index($i.name) == null) and ($i.from != null) and (index($i.from) != null)
             then . + [$i.name] else . end)) as $sel
-        | [.images[] | select(.name as $n | $sel | index($n))] as $imgs
-        | ($imgs | map(select(.from == null)
-            | {name, context, platforms: (.platforms | join(","))})) as $roots
-        | ($imgs | map(select(.from != null)
-            | {name, context, from, platforms: (.platforms | join(","))})) as $deps
+        | [.images[] | select(.name as $n | $sel | index($n))
+            | {name, context, platforms: (.platforms | join(",")), depth: $depth[.name]}
+              + (if .from != null then {from} else {} end)] as $imgs
+        | ([range(0; 3)] | map(. as $d | [$imgs[] | select(.depth == $d) | del(.depth)])) as $stages
         | {registry: $reg,
-           roots: {image: $roots}, any_root: ($roots | length > 0),
-           deps: {image: $deps}, any_dep: ($deps | length > 0)}'
+           roots: {image: ($stages[0] | map(del(.from)))}, any_root: ($stages[0] | length > 0),
+           deps: {image: ($stages[1] + $stages[2])}, any_dep: (($stages[1] + $stages[2]) | length > 0),
+           stages: ($stages | map({image: .})),
+           any_stage: ($stages | map(length > 0))}'
 }
 
 # compose <tag> <commit> <digest-dir> — join catalog.yaml with the digests

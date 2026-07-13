@@ -58,6 +58,12 @@ m=$(./catalog.sh matrix '[]')
 [[ "$(jq -r '.any_root' <<<"$m")" == "false" && "$(jq -r '.any_dep' <<<"$m")" == "false" ]] \
     && pass "empty change set builds nothing" || fail "empty change set wrong: $m"
 
+m=$(./catalog.sh matrix --all)
+[[ "$(jq -c '.stages | map(.image | map(.name))' <<<"$m")" == '[["sandbox-base"],["sandbox-gui","sandbox-harness"],[]]' ]] \
+    && pass "--all: images staged by FROM depth" || fail "--all: stages wrong: $(jq -c .stages <<<"$m")"
+[[ "$(jq -c '.any_stage' <<<"$m")" == '[true,true,false]' ]] \
+    && pass "--all: any_stage flags per stage" || fail "--all: any_stage wrong"
+
 # --- compose ---
 section "compose"
 mkdir -p "$TMP/digests"
@@ -93,7 +99,13 @@ out=$(./catalog.sh lint /dev/null 2>&1) \
     && pass "live catalog schema lints clean" || fail "live catalog lint: $out"
 
 # --- lint: fixtures ---
-fixture() { mkdir -p "$TMP/repo/base" "$TMP/repo/gui"; touch "$TMP/repo/base/Dockerfile" "$TMP/repo/gui/Dockerfile"; cat > "$TMP/repo/catalog.yaml"; cp catalog.sh "$TMP/repo/"; }
+fixture() {
+    local d
+    for d in base gui harness extra; do
+        mkdir -p "$TMP/repo/$d"; touch "$TMP/repo/$d/Dockerfile"
+    done
+    cat > "$TMP/repo/catalog.yaml"; cp catalog.sh "$TMP/repo/"
+}
 
 fixture <<'EOF'
 version: 1
@@ -164,6 +176,70 @@ EOF
 (cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
     && fail "lint must reject unknown defaults keys" \
     || pass "lint rejects unknown defaults keys"
+
+# Depth 2 (three stages) is supported; the third-level image must land
+# in stage 2 and FROM its stage-1 parent.
+fixture <<'EOF'
+version: 1
+registry: ghcr.io/latere-ai
+images:
+  - name: sandbox-base
+    context: base
+    platforms: [linux/amd64]
+    label: Base
+    description: x
+  - name: sandbox-harness
+    context: harness
+    platforms: [linux/amd64]
+    from: sandbox-base
+    label: Harness
+    description: x
+  - name: sandbox-gui
+    context: gui
+    platforms: [linux/amd64]
+    from: sandbox-harness
+    label: GUI
+    description: x
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint /dev/null) >/dev/null 2>&1 \
+    && pass "lint accepts a depth-2 chain (three stages)" \
+    || fail "lint must accept depth-2 chains"
+m=$(cd "$TMP/repo" && ./catalog.sh matrix --all)
+[[ "$(jq -r '.stages[2].image[0].name' <<<"$m")" == "sandbox-gui" && "$(jq -r '.stages[2].image[0].from' <<<"$m")" == "sandbox-harness" ]] \
+    && pass "depth-2 image lands in stage 2 with its stage-1 parent" \
+    || fail "depth-2 staging wrong: $(jq -c .stages <<<"$m")"
+
+fixture <<'EOF'
+version: 1
+registry: ghcr.io/latere-ai
+images:
+  - name: sandbox-base
+    context: base
+    platforms: [linux/amd64]
+    label: Base
+    description: x
+  - name: sandbox-harness
+    context: harness
+    platforms: [linux/amd64]
+    from: sandbox-base
+    label: Harness
+    description: x
+  - name: sandbox-gui
+    context: gui
+    platforms: [linux/amd64]
+    from: sandbox-harness
+    label: GUI
+    description: x
+  - name: sandbox-extra
+    context: extra
+    platforms: [linux/amd64]
+    from: sandbox-gui
+    label: Extra
+    description: x
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint /dev/null) >/dev/null 2>&1 \
+    && fail "lint must reject a FROM chain deeper than 3 stages" \
+    || pass "lint rejects a FROM chain deeper than 3 stages"
 
 fixture <<'EOF'
 version: 1
