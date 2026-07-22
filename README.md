@@ -102,7 +102,7 @@ docker run --rm -it \
   ghcr.io/latere-ai/sandbox-gui:latest
 ```
 
-Then visit `http://localhost:6080/vnc.html`. The entrypoint creates `~/.vncpass` on first boot and prints the generated password to stderr for standalone use. Set `VNC_PASSWORD` or replace that file when orchestration owns attach credentials.
+Then visit `http://localhost:6080/vnc.html`. The entrypoint creates `~/.vncpass` (mode 0600) on first boot. Read the generated password with `docker exec <container> cat ~/.vncpass`; it is never written to the container logs. Set `VNC_PASSWORD` or replace that file when orchestration owns attach credentials.
 
 Launch Chromium directly inside the display:
 

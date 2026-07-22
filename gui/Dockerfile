@@ -58,6 +58,7 @@ RUN set -eux; \
     find /opt/chromium/locales -name '*.pak' ! -name 'en-US.pak' -delete
 
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/gui-entrypoint
+COPY --chmod=0755 vncpass.sh /usr/local/bin/gui-vncpass
 COPY --chmod=0755 supervisor.sh /usr/local/bin/gui-supervisor
 COPY --chmod=0755 chromium-launch /usr/local/bin/chromium-launch
 

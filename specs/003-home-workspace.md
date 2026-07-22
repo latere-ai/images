@@ -37,8 +37,9 @@ and out of scope here.
 - `base/Dockerfile`: `WORKDIR /workspace`, non-root `agent` (UID 1000),
   home `/home/agent` populated at build time from `/etc/skel` (which
   carries the `CELLA_HOST` prompt patch). No entrypoint (bash).
-- `gui/Dockerfile` + `gui/entrypoint.sh`: GUI startup; creates
-  `~/.vncpass` on first boot.
+- `gui/Dockerfile` + `gui/entrypoint.sh` + `gui/vncpass.sh`: GUI
+  startup; `provision_vncpass` creates `~/.vncpass` (mode 0600) on
+  first boot and never logs the password.
 - `harness/Dockerfile`: agent CLIs already installed system-wide
   (`/usr/local`) precisely so a mount over `/home/agent` cannot mask
   them; `~/.claude` and `~/.codex` pre-created.
@@ -70,7 +71,9 @@ in lexical order after the skel copy.
   entrypoint, since `seed-home` can also be invoked explicitly by an
   orchestrator's init hook.
 - `gui/entrypoint.sh` calls `seed-home` first and keeps its existing
-  startup; its `~/.vncpass` logic already handles first boot.
+  startup; `provision_vncpass` (sourced from `gui/vncpass.sh`) already
+  handles first boot, and the 0600 file is the only channel the
+  password is retrievable through.
 
 ### /workspace compatibility symlink
 

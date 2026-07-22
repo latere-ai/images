@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -n "${VNC_PASSWORD:-}" ]]; then
-    umask 077
-    printf "%s\n" "${VNC_PASSWORD}" > "${HOME}/.vncpass"
-elif [[ ! -f "${HOME}/.vncpass" ]]; then
-    umask 077
-    password="$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
-    printf "%s\n" "${password}" > "${HOME}/.vncpass"
-    echo "gui-entrypoint: generated VNC password: ${password}" >&2
-fi
+# shellcheck source=gui/vncpass.sh
+source /usr/local/bin/gui-vncpass
+provision_vncpass
 
 /usr/local/bin/gui-supervisor &
 supervisor_pid=$!
