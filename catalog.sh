@@ -25,6 +25,45 @@ command -v jq >/dev/null || { echo "catalog.sh: jq is required" >&2; exit 1; }
 
 json() { yq -o=json "$CATALOG"; }
 
+# copy_sources prints the build-context paths a Dockerfile COPYs. Flags
+# are dropped and `COPY --from=` instructions are skipped: those read
+# from an earlier stage or an external image, not from the context.
+copy_sources() {
+    awk 'toupper($1) == "COPY" {
+        from_stage = 0; n = 0; delete a
+        for (i = 2; i <= NF; i++) {
+            if ($i ~ /^--from=/) { from_stage = 1; continue }
+            if ($i ~ /^--/) continue
+            a[++n] = $i
+        }
+        if (from_stage) next
+        for (i = 1; i < n; i++) print a[i]
+    }' "$1"
+}
+
+# context_excludes reports whether a context's .dockerignore keeps `path`
+# out of the build context. Patterns are evaluated in file order and the
+# last match decides; a leading `!` re-includes. That last-match rule is
+# what makes a deny-all-then-allow-list file silently drop a newly added
+# script: the file is committed, the COPY is written, and only the image
+# build fails.
+context_excludes() {
+    local ctx="$1" path="$2" excluded=1 line pat
+    [[ -f "$ctx/.dockerignore" ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] || continue
+        pat="${line#!}"
+        # shellcheck disable=SC2053
+        if [[ "$path" == $pat ]]; then
+            [[ "$line" == '!'* ]] && excluded=1 || excluded=0
+        fi
+    done < "$ctx/.dockerignore"
+    return "$excluded"
+}
+
 lint() {
     local workflow="${1:-.github/workflows/release.yml}" errors=0
     err() { echo "lint: $1" >&2; errors=$((errors + 1)); }
@@ -56,6 +95,19 @@ lint() {
         fi
         json | jq -e ".images[$i].defaults // {} | keys - [\"cpu_milli\",\"memory_mb\",\"width\",\"height\"] == []" >/dev/null \
             || err "$n: unknown defaults key"
+        # Every file the Dockerfile COPYs must exist in the context and
+        # survive its .dockerignore.
+        if [[ -f "$ctx/Dockerfile" ]]; then
+            local src
+            while read -r src; do
+                [[ -n "$src" ]] || continue
+                if [[ ! -e "$ctx/$src" ]]; then
+                    err "$n: COPY source '$src' is missing from context '$ctx'"
+                elif context_excludes "$ctx" "$src"; then
+                    err "$n: COPY source '$src' is excluded by $ctx/.dockerignore"
+                fi
+            done < <(copy_sources "$ctx/Dockerfile")
+        fi
     done
 
     # The pipelines build three FROM-depth stages (0, 1, 2); a deeper

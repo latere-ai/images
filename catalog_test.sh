@@ -102,7 +102,8 @@ out=$(./catalog.sh lint /dev/null 2>&1) \
 fixture() {
     local d
     for d in base gui harness extra; do
-        mkdir -p "$TMP/repo/$d"; touch "$TMP/repo/$d/Dockerfile"
+        rm -rf "${TMP:?}/repo/$d"
+        mkdir -p "$TMP/repo/$d"; : > "$TMP/repo/$d/Dockerfile"
     done
     cat > "$TMP/repo/catalog.yaml"; cp catalog.sh "$TMP/repo/"
 }
@@ -176,6 +177,42 @@ EOF
 (cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
     && fail "lint must reject unknown defaults keys" \
     || pass "lint rejects unknown defaults keys"
+
+# A deny-all .dockerignore with an allow-list drops any COPY source the
+# list forgets. The image builds fine locally when the file is present
+# and fails only in the pipeline, so lint has to see it.
+copy_fixture() {
+    fixture <<'EOF'
+version: 1
+registry: ghcr.io/latere-ai
+images:
+  - name: sandbox-base
+    context: base
+    platforms: [linux/amd64]
+    label: Base
+    description: x
+EOF
+    printf 'COPY --chmod=0755 boot.sh /usr/local/bin/boot\n' > "$TMP/repo/base/Dockerfile"
+    touch "$TMP/repo/base/boot.sh"
+}
+
+copy_fixture
+printf '*\n!Dockerfile\n' > "$TMP/repo/base/.dockerignore"
+(cd "$TMP/repo" && ./catalog.sh lint /dev/null) >/dev/null 2>&1 \
+    && fail "lint must reject a COPY source excluded by .dockerignore" \
+    || pass "lint rejects a COPY source excluded by .dockerignore"
+
+copy_fixture
+printf '*\n!Dockerfile\n!boot.sh\n' > "$TMP/repo/base/.dockerignore"
+(cd "$TMP/repo" && ./catalog.sh lint /dev/null) >/dev/null 2>&1 \
+    && pass "lint accepts a COPY source the allow-list re-includes" \
+    || fail "lint must accept a COPY source the allow-list re-includes"
+
+copy_fixture
+rm -f "$TMP/repo/base/boot.sh"
+(cd "$TMP/repo" && ./catalog.sh lint /dev/null) >/dev/null 2>&1 \
+    && fail "lint must reject a COPY source missing from the context" \
+    || pass "lint rejects a COPY source missing from the context"
 
 # Depth 2 (three stages) is supported; the third-level image must land
 # in stage 2 and FROM its stage-1 parent.
