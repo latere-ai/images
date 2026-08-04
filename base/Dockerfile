@@ -65,14 +65,24 @@ ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # --- Node.js 22 LTS ---
 # Install Node.js from a signed apt source instead of piping a remote setup
-# script into bash. The GPG key is fetched once, dearmored into a keyring, and
-# pinned via signed-by so apt verifies every package from NodeSource.
+# script into bash. The signing key is vendored in this context rather than
+# fetched at build time: downloading it from deb.nodesource.com would trust
+# the same host whose packages it is meant to verify, so a compromise there
+# would serve both a substituted key and packages signed with it. Reviewing
+# the key means reviewing nodesource.gpg.key in git. The build asserts the
+# primary fingerprint so an edit to that file cannot swap the trust anchor
+# unnoticed, and signed-by scopes the keyring to this source alone.
 ARG NODE_MAJOR=22
-RUN mkdir -p /usr/share/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
-    gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" | \
-    tee /etc/apt/sources.list.d/nodesource.list && \
+ARG NODE_KEY_FPR=6F71F525282841EEDAF851B42F59B5F99B1BE0B4
+COPY nodesource.gpg.key /tmp/nodesource.gpg.key
+RUN gpg --show-keys --with-colons --with-fingerprint /tmp/nodesource.gpg.key \
+        | awk -F: '$1 == "fpr" { print $10; exit }' \
+        | grep -qx "${NODE_KEY_FPR}" \
+        || { echo "nodesource.gpg.key does not match NODE_KEY_FPR" >&2; exit 1; } && \
+    gpg --dearmor -o /usr/share/keyrings/nodesource.gpg /tmp/nodesource.gpg.key && \
+    rm /tmp/nodesource.gpg.key && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
