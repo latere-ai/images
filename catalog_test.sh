@@ -403,6 +403,21 @@ rel=.github/workflows/release.yml
     && pass "release pipeline builds in three FROM-depth stages" \
     || fail "release pipeline must stage builds so a child never races its parent"
 
+# Staging only pays off if the catalog still publishes: an empty stage
+# is a skipped job, and a skipped need takes its dependents with it
+# unless the dependent runs under always().
+[[ -f "$rel" ]] && yq -r '.jobs.publish-catalog.if' "$rel" | grep -q 'always()' \
+    && pass "publish-catalog survives an empty build stage" \
+    || fail "publish-catalog would be skipped whenever a stage has no images"
+
+# Every stage a release actually runs must record digests, or compose
+# has nothing to pin and baseref has nothing to resolve.
+for s in 0 1 2; do
+    yq -r ".jobs.build-stage$s.steps[].name // \"\"" "$rel" | grep -q '^Upload digest$' \
+        && pass "stage $s uploads its digests" \
+        || fail "stage $s records no digest for compose and the next stage"
+done
+
 # --- summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
