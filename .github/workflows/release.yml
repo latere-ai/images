@@ -32,18 +32,21 @@ permissions:
   packages: write
 
 jobs:
-  # Lint catalog.yaml, then derive the change filters and the two-stage
-  # build matrices (roots = no `from`; deps = FROM a root) from it.
-  # Branch pushes build only changed images; release-producing events
-  # build everything.
+  # Lint catalog.yaml, then derive the change filters and the per-stage
+  # build matrices (stage 0 = no `from`, stage N = FROM a stage N-1
+  # image) from it. Branch pushes build only changed images;
+  # release-producing events build everything. Stages are jobs so a
+  # child never builds concurrently with the parent it FROMs.
   catalog:
     runs-on: ubuntu-latest
     outputs:
       registry: ${{ steps.compute.outputs.registry }}
-      roots: ${{ steps.compute.outputs.roots }}
-      deps: ${{ steps.compute.outputs.deps }}
-      any_root: ${{ steps.compute.outputs.any_root }}
-      any_dep: ${{ steps.compute.outputs.any_dep }}
+      stage0: ${{ steps.compute.outputs.stage0 }}
+      stage1: ${{ steps.compute.outputs.stage1 }}
+      stage2: ${{ steps.compute.outputs.stage2 }}
+      any0: ${{ steps.compute.outputs.any0 }}
+      any1: ${{ steps.compute.outputs.any1 }}
+      any2: ${{ steps.compute.outputs.any2 }}
       push: ${{ steps.compute.outputs.push }}
     steps:
       - uses: actions/checkout@v4
@@ -80,10 +83,10 @@ jobs:
           fi
           {
             echo "registry=$(jq -r '.registry' <<<"$matrix")"
-            echo "roots=$(jq -c '.roots' <<<"$matrix")"
-            echo "deps=$(jq -c '.deps' <<<"$matrix")"
-            echo "any_root=$(jq -r '.any_root' <<<"$matrix")"
-            echo "any_dep=$(jq -r '.any_dep' <<<"$matrix")"
+            for s in 0 1 2; do
+              echo "stage${s}=$(jq -c ".stages[$s]" <<<"$matrix")"
+              echo "any${s}=$(jq -r ".any_stage[$s]" <<<"$matrix")"
+            done
           } >> "$GITHUB_OUTPUT"
           if [[ "$EVENT" == "workflow_dispatch" || "$EVENT" == "release" || ( "$EVENT" == "push" && "$REF" == refs/tags/* ) ]]; then
             echo "push=true" >> "$GITHUB_OUTPUT"
@@ -91,14 +94,18 @@ jobs:
             echo "push=false" >> "$GITHUB_OUTPUT"
           fi
 
-  build-roots:
+  # Stage 0: images with no `from`. Publishing runs record each pushed
+  # image's digest as an artifact; later stages build FROM that digest
+  # rather than :latest, so a re-run or a concurrent release cannot move
+  # the parent out from under a child mid-run.
+  build-stage0:
     needs: catalog
     if: >-
       (github.event_name != 'workflow_dispatch' || inputs.rebuild_base)
-      && needs.catalog.outputs.any_root == 'true'
+      && needs.catalog.outputs.any0 == 'true'
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.catalog.outputs.roots) }}
+      matrix: ${{ fromJSON(needs.catalog.outputs.stage0) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -147,15 +154,15 @@ jobs:
           name: digest-${{ matrix.image.name }}
           path: /tmp/digest/*.json
 
-  build-deps:
-    needs: [catalog, build-roots]
+  build-stage1:
+    needs: [catalog, build-stage0]
     if: >-
       always()
-      && needs.catalog.outputs.any_dep == 'true'
-      && (needs.build-roots.result == 'success' || needs.build-roots.result == 'skipped')
+      && needs.catalog.outputs.any1 == 'true'
+      && (needs.build-stage0.result == 'success' || needs.build-stage0.result == 'skipped')
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.catalog.outputs.deps) }}
+      matrix: ${{ fromJSON(needs.catalog.outputs.stage1) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -168,6 +175,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download parent digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+        continue-on-error: true
+
+      # A publishing run whose parent stage actually ran must resolve the
+      # parent by digest; baseref fails rather than falling back. A
+      # dispatch with rebuild_base=false skips stage 0 on purpose and
+      # reuses the published :latest.
+      - name: Resolve parent image
+        id: parent
+        env:
+          FROM: ${{ matrix.image.from }}
+          REQUIRE: ${{ needs.catalog.outputs.push == 'true' && needs.build-stage0.result == 'success' }}
+        run: |
+          set -euo pipefail
+          ref=$(./catalog.sh baseref "$FROM" digests "$REQUIRE")
+          echo "Building FROM $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Compute image tags
         id: meta
@@ -190,7 +220,87 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            BASE_IMAGE=${{ needs.catalog.outputs.registry }}/${{ matrix.image.from }}:latest
+            BASE_IMAGE=${{ steps.parent.outputs.ref }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+      - name: Record digest
+        if: needs.catalog.outputs.push == 'true'
+        run: |
+          mkdir -p /tmp/digest
+          jq -n --arg name '${{ matrix.image.name }}' --arg digest '${{ steps.build.outputs.digest }}' \
+            '{name: $name, digest: $digest}' > "/tmp/digest/${{ matrix.image.name }}.json"
+      - name: Upload digest
+        if: needs.catalog.outputs.push == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image.name }}
+          path: /tmp/digest/*.json
+
+  build-stage2:
+    needs: [catalog, build-stage0, build-stage1]
+    if: >-
+      always()
+      && needs.catalog.outputs.any2 == 'true'
+      && (needs.build-stage0.result == 'success' || needs.build-stage0.result == 'skipped')
+      && (needs.build-stage1.result == 'success' || needs.build-stage1.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.catalog.outputs.stage2) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download parent digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Resolve parent image
+        id: parent
+        env:
+          FROM: ${{ matrix.image.from }}
+          REQUIRE: ${{ needs.catalog.outputs.push == 'true' && needs.build-stage1.result == 'success' }}
+        run: |
+          set -euo pipefail
+          ref=$(./catalog.sh baseref "$FROM" digests "$REQUIRE")
+          echo "Building FROM $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.catalog.outputs.registry }}/${{ matrix.image.name }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest
+            type=raw,value=${{ inputs.image_tag }},enable=${{ inputs.image_tag != '' }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          platforms: ${{ matrix.image.platforms }}
+          push: ${{ needs.catalog.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BASE_IMAGE=${{ steps.parent.outputs.ref }}
           cache-from: type=gha,scope=${{ matrix.image.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
 
@@ -211,11 +321,20 @@ jobs:
   # publish it to S3-compatible object storage. Tag push and release
   # only: dispatch builds may carry no immutable semver ref, and the
   # catalog contract pins every image to one.
+  # A stage with no images at this depth is skipped, and a skipped need
+  # would skip this job too, so the event test runs under always() with
+  # the stage results checked explicitly. compose still fails on a
+  # missing digest, so a stage that should have produced images cannot
+  # publish a half-empty catalog.
   publish-catalog:
-    needs: [catalog, build-roots, build-deps]
+    needs: [catalog, build-stage0, build-stage1, build-stage2]
     if: >-
-      github.event_name == 'release'
-      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      always()
+      && (github.event_name == 'release'
+          || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')))
+      && needs.build-stage0.result == 'success'
+      && (needs.build-stage1.result == 'success' || needs.build-stage1.result == 'skipped')
+      && (needs.build-stage2.result == 'success' || needs.build-stage2.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

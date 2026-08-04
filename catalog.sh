@@ -11,6 +11,10 @@
 #   ./catalog.sh compose <tag> <commit> <digest-dir>
 #                                          print catalog.json (digest-dir holds
 #                                          one {"name","digest"} JSON per image)
+#   ./catalog.sh baseref <from> <digest-dir> <require>
+#                                          BASE_IMAGE for a child build: the
+#                                          parent's digest from this run, or
+#                                          :latest when <require> is not true
 #   ./catalog.sh build [context...]        build images locally (RUNTIME=podman)
 #   ./catalog.sh clean                     remove locally built images
 #
@@ -209,6 +213,30 @@ compose() {
                + (if $i.defaults then {defaults: $i.defaults} else {} end)]}'
 }
 
+# baseref <from> <digest-dir> <require> — resolve the BASE_IMAGE a child
+# build should use. A publishing run must build FROM the exact parent
+# image it just pushed, so the parent is addressed by the digest that
+# run recorded; :latest is mutable and a re-run, a newer release, or a
+# concurrent dispatch can move it between the two jobs, silently rebasing
+# a release image onto another base. When <require> is true a missing
+# digest is fatal rather than a quiet fall back to :latest, so a dropped
+# artifact fails the release instead of mispinning it. Non-publishing
+# smoke builds pass require=false and resolve the published :latest.
+baseref() {
+    local from="${1:?usage: catalog.sh baseref <from> <digest-dir> <require>}"
+    local dir="${2:?digest dir required}" require="${3:-false}" reg digest
+    reg=$(json | jq -r '.registry')
+    digest=$(jq -r '.digest // ""' "$dir/$from.json" 2>/dev/null || echo "")
+    if [[ -n "$digest" ]]; then
+        echo "$reg/$from@$digest"
+    elif [[ "$require" == "true" ]]; then
+        echo "baseref: no digest recorded for '$from'; refusing to build a published image FROM :latest" >&2
+        exit 1
+    else
+        echo "$reg/$from:latest"
+    fi
+}
+
 # build [context...] — local build via $RUNTIME, tagging <name>:latest and
 # <registry>/<name>:latest. No args builds everything in catalog order;
 # with args, each context's `from` chain builds first.
@@ -257,7 +285,8 @@ case "$cmd" in
     filters) filters ;;
     matrix)  matrix "$@" ;;
     compose) compose "$@" ;;
+    baseref) baseref "$@" ;;
     build)   build "$@" ;;
     clean)   clean ;;
-    *)       grep '^#' "$0" | sed -n '2,15p' >&2; exit 1 ;;
+    *)       grep '^#' "$0" | sed -n '2,19p' >&2; exit 1 ;;
 esac
