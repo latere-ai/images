@@ -372,6 +372,37 @@ for arch in $(yq -r '.images[] | select(.context == "base") | .platforms[]' cata
         || fail "base/Dockerfile has no pinned Go checksum for $arch"
 done
 
+# --- baseref ---
+section "baseref"
+BR="$TMP/baseref"
+mkdir -p "$BR"
+echo '{"name":"sandbox-base","digest":"sha256:abc123"}' > "$BR/sandbox-base.json"
+
+[[ "$(./catalog.sh baseref sandbox-base "$BR" true)" == "ghcr.io/latere-ai/sandbox-base@sha256:abc123" ]] \
+    && pass "resolves the parent to the digest recorded by this run" \
+    || fail "baseref did not use the recorded digest: $(./catalog.sh baseref sandbox-base "$BR" true)"
+
+mkdir -p "$TMP/no-digests"
+[[ "$(./catalog.sh baseref sandbox-base "$TMP/no-digests" false)" == "ghcr.io/latere-ai/sandbox-base:latest" ]] \
+    && pass "falls back to :latest for a non-publishing build" \
+    || fail "baseref should fall back to :latest when a digest is not required"
+
+# A publishing run must never quietly rebase onto :latest: that is the
+# window where a re-run or a concurrent release rewrites a release image
+# onto a different base.
+(./catalog.sh baseref sandbox-base "$TMP/no-digests" true) >/dev/null 2>&1 \
+    && fail "baseref must fail when a publishing run has no digest for the parent" \
+    || pass "baseref fails rather than rebasing a published image onto :latest"
+
+# The release pipeline is the consumer of the two rules above.
+rel=.github/workflows/release.yml
+[[ -f "$rel" ]] && ! grep -Eq 'BASE_IMAGE=.*:latest' "$rel" \
+    && pass "release pipeline does not wire BASE_IMAGE to :latest" \
+    || fail "release pipeline still builds dependent images FROM :latest"
+[[ -f "$rel" ]] && [[ "$(yq -r '.jobs | keys | .[]' "$rel" | grep -c '^build-stage')" == "3" ]] \
+    && pass "release pipeline builds in three FROM-depth stages" \
+    || fail "release pipeline must stage builds so a child never races its parent"
+
 # --- summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
