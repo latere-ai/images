@@ -3,8 +3,8 @@ name: CI
 # Branch CI for the image catalog: lint catalog.yaml, run the tooling
 # tests, and smoke-build (no push) the images whose inputs changed.
 # Images build in three FROM-depth stages (lint caps chains at depth 2).
-# Releases are tag-driven through the central latere-ai/ci
-# images-release pipeline; see release.yml.
+# Releases are tag-driven and self-contained in release.yml: this is a
+# public repo and cannot call a reusable workflow in the private ci repo.
 
 on:
   push:
@@ -98,8 +98,10 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Smoke build
-        # FROM the published :latest of the in-repo parent; the release
-        # pipeline builds FROM the tag it just pushed instead.
+        # FROM the published :latest of the in-repo parent. Nothing is
+        # pushed here, so a moving :latest costs at most a stale smoke
+        # build; the release pipeline resolves the parent by the digest
+        # it just pushed instead (catalog.sh baseref).
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.image.context }}
