@@ -321,11 +321,20 @@ jobs:
   # publish it to S3-compatible object storage. Tag push and release
   # only: dispatch builds may carry no immutable semver ref, and the
   # catalog contract pins every image to one.
+  # A stage with no images at this depth is skipped, and a skipped need
+  # would skip this job too, so the event test runs under always() with
+  # the stage results checked explicitly. compose still fails on a
+  # missing digest, so a stage that should have produced images cannot
+  # publish a half-empty catalog.
   publish-catalog:
     needs: [catalog, build-stage0, build-stage1, build-stage2]
     if: >-
-      github.event_name == 'release'
-      || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
+      always()
+      && (github.event_name == 'release'
+          || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')))
+      && needs.build-stage0.result == 'success'
+      && (needs.build-stage1.result == 'success' || needs.build-stage1.result == 'skipped')
+      && (needs.build-stage2.result == 'success' || needs.build-stage2.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
