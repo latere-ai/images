@@ -297,6 +297,35 @@ echo "image: ghcr.io/latere-ai/sandbox-base:latest" > "$TMP/repo/.github/workflo
     && pass "grep gate passes on a catalog-driven workflow" \
     || fail "grep gate false positive"
 
+fixture <<'EOF'
+version: 1
+registry: ghcr.io/latere-ai
+images:
+  - name: sandbox-base
+    context: base
+    platforms: [linux/amd64]
+    label: Base
+    description: x
+EOF
+cat > "$TMP/repo/base/Dockerfile" <<'EOF'
+FROM ubuntu:24.04
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
+    && fail "lint must reject a Dockerfile that pipes the NodeSource script into bash" \
+    || pass "lint rejects a Dockerfile that pipes the NodeSource script into bash"
+
+cat > "$TMP/repo/base/Dockerfile" <<'EOF'
+FROM ubuntu:24.04
+RUN mkdir -p /usr/share/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y nodejs
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
+    && pass "lint accepts a Dockerfile with a signed NodeSource apt source" \
+    || fail "lint false positive on signed NodeSource apt source"
+
 # --- summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then

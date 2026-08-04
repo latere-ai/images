@@ -86,6 +86,9 @@ lint() {
         from=$(json | jq -r ".images[$i].from // \"\"")
         [[ "$n" =~ ^[a-z0-9][a-z0-9-]*$ ]] || err "images[$i]: bad or missing name '$n'"
         [[ -f "$ctx/Dockerfile" ]] || err "$n: context '$ctx' has no Dockerfile"
+        if grep -Eq 'nodesource\.com/setup[^[:space:]]*[[:space:]]*\|[[:space:]]*bash' "$ctx/Dockerfile"; then
+            err "$n: Dockerfile pipes the NodeSource setup script into bash; use a signed apt source instead"
+        fi
         [[ "$(json | jq ".images[$i].platforms | length")" -gt 0 ]] || err "$n: platforms is required"
         [[ -n "$(json | jq -r ".images[$i].label // \"\"")" ]] || err "$n: label is required"
         [[ -n "$(json | jq -r ".images[$i].description // \"\"")" ]] || err "$n: description is required"

@@ -64,9 +64,17 @@ ENV GOPATH=
 ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # --- Node.js 22 LTS ---
+# Install Node.js from a signed apt source instead of piping a remote setup
+# script into bash. The GPG key is fetched once, dearmored into a keyring, and
+# pinned via signed-by so apt verifies every package from NodeSource.
 ARG NODE_MAJOR=22
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
-    apt-get install -y nodejs && \
+RUN mkdir -p /usr/share/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+    gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" | \
+    tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # --- Interactive prompt: instance-aware hostname ---
