@@ -288,5 +288,5 @@ case "$cmd" in
     baseref) baseref "$@" ;;
     build)   build "$@" ;;
     clean)   clean ;;
-    *)       grep '^#' "$0" | sed -n '2,15p' >&2; exit 1 ;;
+    *)       grep '^#' "$0" | sed -n '2,19p' >&2; exit 1 ;;
 esac

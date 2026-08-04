@@ -374,6 +374,12 @@ done
 
 # --- baseref ---
 section "baseref"
+# Usage is printed by line range, so a new subcommand silently falls off
+# the end of the help unless the range grows with it.
+(./catalog.sh 2>&1 >/dev/null || true) | grep -q 'clean' \
+    && pass "usage still lists every subcommand" \
+    || fail "catalog.sh usage is truncated"
+
 BR="$TMP/baseref"
 mkdir -p "$BR"
 echo '{"name":"sandbox-base","digest":"sha256:abc123"}' > "$BR/sandbox-base.json"
