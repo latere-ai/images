@@ -29,10 +29,25 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # --- Go ---
+# The toolchain is downloaded to disk and checked against a pinned digest
+# before anything is extracted: this compiler builds every binary in this
+# image and in every image FROM it, so a substituted tarball would reach
+# all of them with nothing to catch it. Checksums come from the official
+# index (https://go.dev/dl/?mode=json) and must be updated in the same
+# commit as GO_VERSION; the build fails loudly if they drift.
 ARG GO_VERSION=1.26.4
+ARG GO_SHA256_amd64=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
+ARG GO_SHA256_arm64=ef758ae7c6cf9267c9c0ef080b8965f453d89ab2d25d9eb22de4405925238768
 RUN ARCH=$(dpkg --print-architecture) && \
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
-    | tar -C /usr/local -xzf - && \
+    case "$ARCH" in \
+        amd64) SHA="${GO_SHA256_amd64}" ;; \
+        arm64) SHA="${GO_SHA256_arm64}" ;; \
+        *) echo "no pinned Go checksum for arch: $ARCH" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz && \
+    echo "${SHA}  /tmp/go.tar.gz" | sha256sum -c - && \
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \
+    rm /tmp/go.tar.gz && \
     ln -s /usr/local/go/bin/go /usr/local/bin/go && \
     ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
