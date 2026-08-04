@@ -86,8 +86,17 @@ lint() {
         from=$(json | jq -r ".images[$i].from // \"\"")
         [[ "$n" =~ ^[a-z0-9][a-z0-9-]*$ ]] || err "images[$i]: bad or missing name '$n'"
         [[ -f "$ctx/Dockerfile" ]] || err "$n: context '$ctx' has no Dockerfile"
-        if grep -Eq 'nodesource\.com/setup[^[:space:]]*[[:space:]]*\|[[:space:]]*bash' "$ctx/Dockerfile"; then
-            err "$n: Dockerfile pipes the NodeSource setup script into bash; use a signed apt source instead"
+        # NodeSource trust gates. Piping their setup script into bash runs
+        # unpinned remote content as root; fetching their signing key at
+        # build time trusts the same host the key is supposed to verify.
+        # Both must stay out of every Dockerfile, not just base's.
+        if [[ -f "$ctx/Dockerfile" ]]; then
+            if grep -Eq 'nodesource\.com/setup[^[:space:]]*[[:space:]]*\|[[:space:]]*bash' "$ctx/Dockerfile"; then
+                err "$n: Dockerfile pipes the NodeSource setup script into bash; use a signed apt source instead"
+            fi
+            if grep -Eq 'nodesource\.com/gpgkey' "$ctx/Dockerfile"; then
+                err "$n: Dockerfile fetches the NodeSource signing key at build time; vendor the key in the context and COPY it"
+            fi
         fi
         [[ "$(json | jq ".images[$i].platforms | length")" -gt 0 ]] || err "$n: platforms is required"
         [[ -n "$(json | jq -r ".images[$i].label // \"\"")" ]] || err "$n: label is required"
