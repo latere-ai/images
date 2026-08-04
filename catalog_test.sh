@@ -317,14 +317,33 @@ EOF
 
 cat > "$TMP/repo/base/Dockerfile" <<'EOF'
 FROM ubuntu:24.04
-RUN mkdir -p /usr/share/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && apt-get install -y nodejs
 EOF
 (cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
-    && pass "lint accepts a Dockerfile with a signed NodeSource apt source" \
-    || fail "lint false positive on signed NodeSource apt source"
+    && fail "lint must reject a Dockerfile that fetches the NodeSource key at build time" \
+    || pass "lint rejects a Dockerfile that fetches the NodeSource key at build time"
+
+: > "$TMP/repo/base/nodesource.gpg.key"
+cat > "$TMP/repo/base/Dockerfile" <<'EOF'
+FROM ubuntu:24.04
+COPY nodesource.gpg.key /tmp/nodesource.gpg.key
+RUN gpg --dearmor -o /usr/share/keyrings/nodesource.gpg /tmp/nodesource.gpg.key && \
+    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y nodejs
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
+    && pass "lint accepts a vendored NodeSource key with a signed apt source" \
+    || fail "lint false positive on vendored NodeSource key"
+
+# The vendored key must be the one the base image asserts: a swapped or
+# re-fetched key would sail through the grep gates above.
+[[ "$(gpg --show-keys --with-colons --with-fingerprint base/nodesource.gpg.key 2>/dev/null \
+    | awk -F: '$1 == "fpr" { print $10; exit }')" \
+    == "$(grep -oE 'ARG NODE_KEY_FPR=[0-9A-F]+' base/Dockerfile | cut -d= -f2)" ]] \
+    && pass "vendored key matches the fingerprint base/Dockerfile asserts" \
+    || fail "vendored key does not match NODE_KEY_FPR in base/Dockerfile"
 
 # --- summary ---
 echo
