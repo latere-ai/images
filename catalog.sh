@@ -97,6 +97,13 @@ lint() {
             if grep -Eq 'nodesource\.com/gpgkey' "$ctx/Dockerfile"; then
                 err "$n: Dockerfile fetches the NodeSource signing key at build time; vendor the key in the context and COPY it"
             fi
+            # The Go toolchain compiles binaries for this image and every
+            # image FROM it, so its tarball may not be extracted on the
+            # strength of HTTPS alone. Pairing the download with a digest
+            # check is what the gate looks for.
+            if grep -Eq 'go\.dev/dl/' "$ctx/Dockerfile" && ! grep -Eq 'sha256sum[[:space:]]+-c' "$ctx/Dockerfile"; then
+                err "$n: Dockerfile downloads the Go toolchain without a sha256sum -c check; pin the per-arch digest"
+            fi
         fi
         [[ "$(json | jq ".images[$i].platforms | length")" -gt 0 ]] || err "$n: platforms is required"
         [[ -n "$(json | jq -r ".images[$i].label // \"\"")" ]] || err "$n: label is required"

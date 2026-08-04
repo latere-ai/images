@@ -345,6 +345,33 @@ EOF
     && pass "vendored key matches the fingerprint base/Dockerfile asserts" \
     || fail "vendored key does not match NODE_KEY_FPR in base/Dockerfile"
 
+cat > "$TMP/repo/base/Dockerfile" <<'EOF'
+FROM ubuntu:24.04
+RUN curl -fsSL "https://go.dev/dl/go1.26.4.linux-amd64.tar.gz" | tar -C /usr/local -xzf -
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
+    && fail "lint must reject an unverified Go toolchain download" \
+    || pass "lint rejects an unverified Go toolchain download"
+
+cat > "$TMP/repo/base/Dockerfile" <<'EOF'
+FROM ubuntu:24.04
+ARG GO_SHA256_amd64=deadbeef
+RUN curl -fsSL "https://go.dev/dl/go1.26.4.linux-amd64.tar.gz" -o /tmp/go.tar.gz && \
+    echo "${GO_SHA256_amd64}  /tmp/go.tar.gz" | sha256sum -c - && \
+    tar -C /usr/local -xzf /tmp/go.tar.gz
+EOF
+(cd "$TMP/repo" && ./catalog.sh lint) >/dev/null 2>&1 \
+    && pass "lint accepts a Go download checked with sha256sum" \
+    || fail "lint false positive on a checksum-verified Go download"
+
+# Every arch the base image publishes needs a pinned digest, or the build
+# falls off the case arm and fails at release time instead of at review.
+for arch in $(yq -r '.images[] | select(.context == "base") | .platforms[]' catalog.yaml | cut -d/ -f2); do
+    grep -q "ARG GO_SHA256_${arch}=[0-9a-f]\{64\}" base/Dockerfile \
+        && pass "base pins a Go checksum for $arch" \
+        || fail "base/Dockerfile has no pinned Go checksum for $arch"
+done
+
 # --- summary ---
 echo
 if [ "$FAILURES" -eq 0 ]; then
