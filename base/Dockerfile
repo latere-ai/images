@@ -35,9 +35,9 @@ ENV LC_ALL=en_US.UTF-8
 # all of them with nothing to catch it. Checksums come from the official
 # index (https://go.dev/dl/?mode=json) and must be updated in the same
 # commit as GO_VERSION; the build fails loudly if they drift.
-ARG GO_VERSION=1.26.4
-ARG GO_SHA256_amd64=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
-ARG GO_SHA256_arm64=ef758ae7c6cf9267c9c0ef080b8965f453d89ab2d25d9eb22de4405925238768
+ARG GO_VERSION=1.27.0
+ARG GO_SHA256_amd64=675c26c449cbb18fc24b74650de1eabbae6e16f64326fd85a283fb3b58280685
+ARG GO_SHA256_arm64=51798d2c42d0e1c6ed7fd9f48728b4193abac9e8aad6dbac2fe96a81f5909bda
 RUN ARCH=$(dpkg --print-architecture) && \
     case "$ARCH" in \
         amd64) SHA="${GO_SHA256_amd64}" ;; \
@@ -56,7 +56,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # Utility tools use @latest (stable, rarely breaking).
 ARG GOPLS_VERSION=v0.21.1
 ARG DLV_VERSION=v1.24.2
-ARG GOLANGCI_LINT_VERSION=v2.11.3
+ARG GOLANGCI_LINT_VERSION=v2.13.1
 ENV GOPATH=/root/go
 ENV PATH=$PATH:/root/go/bin
 RUN go install golang.org/x/tools/gopls@${GOPLS_VERSION} && \
