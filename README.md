@@ -122,7 +122,9 @@ docker run --rm -it \
 
 ## Releases and the published catalog
 
-Releases are tag-driven through the central [latere-ai/ci](https://github.com/latere-ai/ci) `images-release` pipeline (the same reusable-pipeline approach every latere.ai project uses; this repo keeps only the thin caller in `release.yml`). Pushing a `vX.Y.Z` tag builds and pushes every cataloged image in dependency order, publishes the catalog, smokes the published images with `test.sh`, and publishes a GitHub release whose notes carry the digest table and the full smoke output as evidence. Branch pushes run `ci.yml` instead: catalog lint, tooling tests, and smoke builds of changed images, nothing pushed.
+Releases are tag-driven and self-contained in `release.yml`. Pushing a `vX.Y.Z` tag builds every cataloged image in dependency order and pushes each one to GHCR as `v{version}`, `v{major}.{minor}`, and `latest`. Each image is built FROM the digest its parent produced in the same run, so a concurrent release cannot move a base image out from under an image that builds on it. A published GitHub release does the same. A manual dispatch can additionally skip the base rebuild and stamp one extra tag on the images built on top of it.
+
+Pushes to `main` publish nothing. `ci.yml` lints the catalog, runs the tooling tests, and smoke-builds the images whose context directory changed; `release.yml` runs the same build matrix with pushing disabled.
 
 The pipeline composes `catalog.json` from `catalog.yaml` plus the built image digests and uploads it to S3-compatible object storage:
 
