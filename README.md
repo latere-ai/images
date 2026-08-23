@@ -75,12 +75,14 @@ git clone https://github.com/latere-ai/images.git
 cd images
 
 make            # Build all images in catalog order
-make base       # Build base image only
-make gui        # Build GUI/VNC sandbox (builds base first)
-make clean      # Remove all images
+make base       # Build the base image only
+make gui        # Build the GUI/VNC sandbox (builds base first)
+make harness    # Build the agent harness (builds base first)
+make test       # Run the catalog tooling tests
+make clean      # Remove all built images
 ```
 
-Targets are the context directories from `catalog.yaml`. Building requires `yq` and `jq`. Override the container runtime (default: `podman`):
+Build targets are the context directories from `catalog.yaml`, so a new image directory becomes a `make` target with no Makefile edit. Building requires `yq` and `jq`. Override the container runtime (default: `podman`):
 
 ```bash
 make RUNTIME=docker
