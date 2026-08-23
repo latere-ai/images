@@ -1,15 +1,34 @@
 # Sandbox Images
 
-Container images for the Cella sandbox platform.
+[![CI](https://github.com/latere-ai/images/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/images/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Container images that run coding agents and computer-use sessions in a sandbox. They back the Cella sandbox platform and run standalone under Docker or Podman.
 
 ## Images
 
-- **sandbox-base**: shared base image with OS packages, Go, Go tools, Node.js, Python, and a non-root `agent` user
-  `ghcr.io/latere-ai/sandbox-base`
-- **sandbox-gui**: base + GUI/VNC stack for computer-use workflows
-  `ghcr.io/latere-ai/sandbox-gui`
-- **sandbox-harness**: base + agent CLIs (Claude Code, Codex) for agent workloads
-  `ghcr.io/latere-ai/sandbox-harness`
+| Image | Registry reference | Platforms | Contents |
+| --- | --- | --- | --- |
+| `sandbox-base` | `ghcr.io/latere-ai/sandbox-base` | amd64, arm64 | OS packages, Go and Go tooling, Node.js 22, Python 3, non-root `agent` user |
+| `sandbox-gui` | `ghcr.io/latere-ai/sandbox-gui` | amd64 | base plus the GUI/VNC stack for computer-use workflows |
+| `sandbox-harness` | `ghcr.io/latere-ai/sandbox-harness` | amd64, arm64 | base plus the Claude Code and Codex CLIs for agent workloads |
+
+Each image builds FROM the one above it, and a release pushes them in that order:
+
+```mermaid
+flowchart LR
+  tag(["git tag vX.Y.Z"]) --> base
+  subgraph chain["build order (FROM chain)"]
+    direction TB
+    base["sandbox-base<br/>linux/amd64, linux/arm64"]
+    gui["sandbox-gui<br/>linux/amd64"]
+    harness["sandbox-harness<br/>linux/amd64, linux/arm64"]
+    base --> gui
+    base --> harness
+  end
+  chain -- "push, then read back the digest" --> ghcr[("ghcr.io/latere-ai")]
+  ghcr --> json["catalog.json<br/>digest-pinned, in object storage"]
+```
 
 The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix, the Makefile targets, `test.sh`, and the published catalog all derive from it. To add an image: create a context directory with a `Dockerfile`, add one entry to `catalog.yaml`, done. `catalog.yaml` documents every field inline; `./catalog.sh lint` validates it (and `bash catalog_test.sh` tests the tooling itself).
 
@@ -68,6 +87,18 @@ make RUNTIME=docker
 ```
 
 Built images are tagged as both `sandbox-base:latest` (local) and `ghcr.io/latere-ai/sandbox-base:latest` (registry name).
+
+## Testing
+
+Three suites, all runnable locally:
+
+| Command | What it covers | Needs |
+| --- | --- | --- |
+| `make test` | the catalog tooling: lint rules, change filters, build-matrix staging, and `catalog.json` composition | `yq`, `jq` |
+| `bash gui/entrypoint_test.sh` | VNC password provisioning for the GUI image; sources the script directly, no container | bash |
+| `bash test.sh [tag]` | the images themselves at a tag (default `latest`): every cataloged image runs, and each one's runtime contract holds | a container runtime, `yq`, and the images available locally or on GHCR |
+
+CI runs the first suite only. `gui/entrypoint_test.sh` and `test.sh` are not wired into either workflow, so a change to the GUI startup path or to an image's runtime contract is not covered by a branch build. Run both by hand before cutting a release tag.
 
 ## Running standalone
 
@@ -163,3 +194,15 @@ These details are relevant if you are building custom images on top of the sandb
 - **User**: non-root `agent` (UID 1000), passwordless sudo, `$HOME=/home/agent`
 - **Prompt**: the shell prompt prefers the `CELLA_HOST` env var (the runtime-injected instance name) and falls back to the kernel hostname when unset
 - **GUI mode**: `sandbox-gui` starts its own XFCE desktop on `DISPLAY=:0` and serves noVNC from port `6080`; override `SCREEN_GEOMETRY` to change the boot-time display size
+
+## Status and stability
+
+The `catalog.json` contract carries a top-level `version`, currently `1`. A breaking change to its shape bumps that number. Image references inside it always point at an immutable release tag, so a consumer pinning from the catalog never follows a moving tag.
+
+The published image tags follow the release tag. `vX.Y.Z` and `vX.Y` are stable once pushed; `latest` moves with every release. Pin `vX.Y.Z` or a digest for reproducible builds.
+
+The image contract above is the surface consumers build against. Tool versions inside an image change freely between releases; the working directory, user, ports, and environment variables do not.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
