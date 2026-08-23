@@ -60,7 +60,7 @@ Pre-built images are published to GHCR on every release:
 podman pull ghcr.io/latere-ai/sandbox-base:latest
 
 # Pull a specific version
-podman pull ghcr.io/latere-ai/sandbox-base:v0.0.1
+podman pull ghcr.io/latere-ai/sandbox-base:vX.Y.Z
 
 # Pull the GUI variant
 podman pull ghcr.io/latere-ai/sandbox-gui:latest
@@ -100,7 +100,7 @@ Three suites, all runnable locally:
 | `bash gui/entrypoint_test.sh` | VNC password provisioning for the GUI image; sources the script directly, no container | bash |
 | `bash test.sh [tag]` | the images themselves at a tag (default `latest`): every cataloged image runs, and each one's runtime contract holds | a container runtime, `yq`, and the images available locally or on GHCR |
 
-CI runs the first suite only. `gui/entrypoint_test.sh` and `test.sh` are not wired into either workflow, so a change to the GUI startup path or to an image's runtime contract is not covered by a branch build. Run both by hand before cutting a release tag.
+CI runs `./catalog.sh lint` against the committed catalog plus the first suite. `gui/entrypoint_test.sh` and `test.sh` are not wired into either workflow, so a change to the GUI startup path or to an image's runtime contract is not covered by a branch build. Run both by hand before cutting a release tag.
 
 ## Running standalone
 
