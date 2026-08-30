@@ -1,1 +1,4 @@
 .DS_Store
+
+# Agent instructions live in AGENTS.md; CLAUDE.md is a local symlink to it.
+CLAUDE.md
