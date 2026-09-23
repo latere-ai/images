@@ -1,6 +1,6 @@
 # Sandbox Images
 
-[![CI](https://github.com/latere-ai/images/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/images/actions/workflows/ci.yml)
+[![CI](https://github.com/latere-ai/sandbox-images/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/sandbox-images/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Container images that run coding agents and computer-use sessions in a sandbox. They back the Cella sandbox platform and run standalone under Docker or Podman.
@@ -71,8 +71,8 @@ Replace `podman` with `docker` if using Docker.
 ## Building locally
 
 ```bash
-git clone https://github.com/latere-ai/images.git
-cd images
+git clone https://github.com/latere-ai/sandbox-images.git
+cd sandbox-images
 
 make            # Build all images in catalog order
 make base       # Build the base image only
@@ -169,7 +169,7 @@ Consumers use this to discover published images. The contract (top-level `versio
 ```json
 {
   "version": 1,
-  "source": { "repo": "latere-ai/images", "commit": "<sha>", "tag": "v0.0.13" },
+  "source": { "repo": "latere-ai/sandbox-images", "commit": "<sha>", "tag": "v0.0.13" },
   "images": [
     {
       "name": "sandbox-gui",

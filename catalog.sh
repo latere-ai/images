@@ -199,7 +199,7 @@ compose() {
     local digests
     digests=$(jq -s 'map({(.name): .digest}) | add // {}' "$dir"/*.json 2>/dev/null || echo '{}')
     json | jq --arg tag "$tag" --arg commit "$commit" \
-              --arg repo "${GITHUB_REPOSITORY:-latere-ai/images}" \
+              --arg repo "${GITHUB_REPOSITORY:-latere-ai/sandbox-images}" \
               --argjson digests "$digests" '
         .registry as $reg
         | {version: 1,

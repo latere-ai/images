@@ -104,7 +104,7 @@ the per-job `docker/build-push-action` `digest` outputs:
 ```json
 {
   "version": 1,
-  "source": { "repo": "latere-ai/images", "commit": "<sha>", "tag": "v0.0.13" },
+  "source": { "repo": "latere-ai/sandbox-images", "commit": "<sha>", "tag": "v0.0.13" },
   "images": [
     {
       "name": "sandbox-gui",
