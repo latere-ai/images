@@ -3,110 +3,64 @@
 [![CI](https://github.com/latere-ai/sandbox-images/actions/workflows/ci.yml/badge.svg)](https://github.com/latere-ai/sandbox-images/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Container images that run coding agents and computer-use sessions in a sandbox. They back the Cella sandbox platform and run standalone under Docker or Podman.
+Container images for running coding agents and computer-use sessions in an
+isolated environment. Latere's hosted sandboxes, built on
+[Cella](https://github.com/latere-ai/cella), run them, and each one also runs
+on its own under Docker or Podman.
 
 ## Images
 
-| Image | Registry reference | Platforms | Contents |
+| Image | Reference | Platforms | Contents |
 | --- | --- | --- | --- |
-| `sandbox-base` | `ghcr.io/latere-ai/sandbox-base` | amd64, arm64 | OS packages, Go and Go tooling, Node.js 22, Python 3, non-root `agent` user |
-| `sandbox-gui` | `ghcr.io/latere-ai/sandbox-gui` | amd64 | base plus the GUI/VNC stack for computer-use workflows |
-| `sandbox-harness` | `ghcr.io/latere-ai/sandbox-harness` | amd64, arm64 | base plus the Claude Code and Codex CLIs for agent workloads |
+| `sandbox-base` | `ghcr.io/latere-ai/sandbox-base` | amd64, arm64 | Ubuntu 24.04, Go and Go tooling, Node.js 22, Python 3, and a non-root `agent` user |
+| `sandbox-gui` | `ghcr.io/latere-ai/sandbox-gui` | amd64 | the base plus an X display, the mutter window manager, a VNC server behind noVNC, and Chrome for Testing |
+| `sandbox-harness` | `ghcr.io/latere-ai/sandbox-harness` | amd64, arm64 | the base plus the Claude Code and Codex CLIs |
 
-Each image builds FROM the one above it, and a release pushes them in that order:
-
-```mermaid
-flowchart LR
-  tag(["git tag vX.Y.Z"]) --> base
-  subgraph chain["build order (FROM chain)"]
-    direction TB
-    base["sandbox-base<br/>linux/amd64, linux/arm64"]
-    gui["sandbox-gui<br/>linux/amd64"]
-    harness["sandbox-harness<br/>linux/amd64, linux/arm64"]
-    base --> gui
-    base --> harness
-  end
-  chain -- "push, then read back the digest" --> ghcr[("ghcr.io/latere-ai")]
-  ghcr --> json["catalog.json<br/>digest-pinned, in object storage"]
-```
-
-The image inventory lives in [`catalog.yaml`](catalog.yaml); the CI build matrix, the Makefile targets, `test.sh`, and the published catalog all derive from it. To add an image: create a context directory with a `Dockerfile`, add one entry to `catalog.yaml`, done. `catalog.yaml` documents every field inline; `./catalog.sh lint` validates it (and `bash catalog_test.sh` tests the tooling itself).
+`sandbox-gui` and `sandbox-harness` are built FROM `sandbox-base`, so
+everything in the base is in both.
 
 ## What's inside
 
-The base image (Ubuntu 24.04, multi-arch amd64/arm64) provides:
+**sandbox-base**
 
-- **OS**: Ubuntu 24.04 with `build-essential`, `git`, `curl`, `wget`, `vim`, `jq`, `ripgrep`, `openssh-client`
-- **Go**: pinned via the `GO_VERSION` ARG in `base/Dockerfile`, plus tooling (gopls, goimports, delve, golangci-lint, staticcheck, gosec, and more)
-- **Node.js**: 22 LTS
-- **Python**: 3 with pip and venv
-- **Non-root user**: `agent` (UID 1000), passwordless sudo
+- **OS**: Ubuntu 24.04 with `build-essential`, `git`, `curl`, `wget`, `vim`,
+  `jq`, `ripgrep`, `unzip`, `zip`, `openssh-client`, and `sudo`. The locale
+  is `en_US.UTF-8` and the time zone is UTC.
+- **Go**: the release pinned by `GO_VERSION` in
+  [`base/Dockerfile`](base/Dockerfile), with gopls, goimports, gorename,
+  godoc, delve (`dlv`), golangci-lint, staticcheck, gosec, gomodifytags,
+  impl, gotests, godef, and go-outline.
+- **Node.js**: 22 from the NodeSource apt repository. `npm install -g`
+  installs into `~/.npm-global`, which is on `PATH`, so it works without
+  root.
+- **Python**: 3 with pip and venv.
+- **User**: `agent` (UID and GID 1000) with passwordless sudo, home
+  `/home/agent`, working directory `/workspace`.
 
-Image-specific additions:
+**sandbox-gui**
 
-- **sandbox-gui**
-  - Xvfb display, XFCE desktop session, x11vnc, websockify/noVNC, xdotool, ImageMagick, and Chrome for Testing
-  - Exposes noVNC on port `6080` and defaults to `SCREEN_GEOMETRY=1280x800x24`
-- **sandbox-harness**
-  - Claude Code and Codex CLIs, installed system-wide (versions pinned via ARGs in `harness/Dockerfile`)
-  - Pre-created `~/.claude` and `~/.codex` so a single credential file can be bind-mounted
+- Xvfb on display `:0`, the mutter window manager, x11vnc, and websockify
+  serving the noVNC web client on port `6080`.
+- Chrome for Testing as `chromium`, and `chromium-launch`, which starts it
+  with flags suited to a container.
+- xdotool, xdpyinfo, ImageMagick, socat, and DejaVu, Noto CJK, and Noto
+  Color Emoji fonts.
 
-## Using pre-built images
+**sandbox-harness**
 
-Pre-built images are published to GHCR on every release:
+- The Claude Code and Codex CLIs, at the versions pinned in
+  [`harness/Dockerfile`](harness/Dockerfile). They are installed under
+  `/usr/local`, outside the home directory, so a volume mounted over
+  `/home/agent` does not hide them.
+- `~/.claude` and `~/.codex` already exist, owned by `agent`, so a single
+  credential file can be mounted into either one.
 
-```bash
-# Pull the base image
-podman pull ghcr.io/latere-ai/sandbox-base:latest
+## Running an image
 
-# Pull a specific version
-podman pull ghcr.io/latere-ai/sandbox-base:vX.Y.Z
+The examples use `docker`; `podman` takes the same arguments. Mount the
+project you work on under `/workspace`.
 
-# Pull the GUI variant
-podman pull ghcr.io/latere-ai/sandbox-gui:latest
-```
-
-Replace `podman` with `docker` if using Docker.
-
-## Building locally
-
-```bash
-git clone https://github.com/latere-ai/sandbox-images.git
-cd sandbox-images
-
-make            # Build all images in catalog order
-make base       # Build the base image only
-make gui        # Build the GUI/VNC sandbox (builds base first)
-make harness    # Build the agent harness (builds base first)
-make test       # Run the catalog tooling tests
-make clean      # Remove all built images
-```
-
-Build targets are the context directories from `catalog.yaml`, so a new image directory becomes a `make` target with no Makefile edit. Building requires `yq` and `jq`. Override the container runtime (default: `podman`):
-
-```bash
-make RUNTIME=docker
-```
-
-Built images are tagged as both `sandbox-base:latest` (local) and `ghcr.io/latere-ai/sandbox-base:latest` (registry name).
-
-## Testing
-
-Three suites, all runnable locally:
-
-| Command | What it covers | Needs |
-| --- | --- | --- |
-| `make test` | the catalog tooling: lint rules, change filters, build-matrix staging, and `catalog.json` composition | `yq`, `jq` |
-| `bash gui/entrypoint_test.sh` | VNC password provisioning for the GUI image; sources the script directly, no container | bash |
-| `bash test.sh [tag]` | the images themselves at a tag (default `latest`): every cataloged image runs, and each one's runtime contract holds | a container runtime, `yq`, and the images available locally or on GHCR |
-
-CI runs `./catalog.sh lint` against the committed catalog plus the first suite. `gui/entrypoint_test.sh` and `test.sh` are not wired into either workflow, so a change to the GUI startup path or to an image's runtime contract is not covered by a branch build. Run both by hand before cutting a release tag.
-
-## Running standalone
-
-You can run these images directly. Mount a workspace directory into the container under `/workspace`.
-
-### Base sandbox
+### Base
 
 ```bash
 docker run --rm -it \
@@ -116,15 +70,27 @@ docker run --rm -it \
   bash
 ```
 
-The container runs as the non-root `agent` user with `/home/agent` as `$HOME`. Install any agent CLI you need inside the sandbox (e.g. `npm install -g <cli>`).
+The shell runs as `agent`. To add a command-line tool, install it inside the
+container, for example `npm install -g <package>`.
 
-### GUI sandbox
+### Harness
 
-`sandbox-gui` is an image for computer-use workflows. It starts an Xvfb display, a lightweight XFCE desktop, x11vnc, and a noVNC websocket bridge.
+Mount the project and the credential file of the CLI you run:
 
-The GUI image is published for `linux/amd64` because Chrome for Testing does not ship a Linux arm64 archive. On arm64 hosts, run it with `--platform linux/amd64`.
+```bash
+docker run --rm -it \
+  -v "$HOME/.codex/auth.json":/home/agent/.codex/auth.json \
+  -v "$(pwd)":/workspace/myproject \
+  -w /workspace/myproject \
+  ghcr.io/latere-ai/sandbox-harness:latest \
+  codex
+```
 
-Run it locally and open noVNC:
+Claude Code reads `/home/agent/.claude/.credentials.json` in the same way.
+The container runs as UID 1000, so a mounted file must be readable by that
+user.
+
+### GUI
 
 ```bash
 docker run --rm -it \
@@ -135,9 +101,12 @@ docker run --rm -it \
   ghcr.io/latere-ai/sandbox-gui:latest
 ```
 
-Then visit `http://localhost:6080/vnc.html`. The entrypoint creates `~/.vncpass` (mode 0600) on first boot. Read the generated password with `docker exec <container> cat ~/.vncpass`; it is never written to the container logs. Set `VNC_PASSWORD` or replace that file when orchestration owns attach credentials.
+Then open `http://localhost:6080/vnc.html`.
 
-Launch Chromium directly inside the display:
+The entrypoint starts the display, the window manager, the VNC server, and
+the noVNC bridge, waits for the display to answer, and then runs the command
+you pass, `bash` when you pass none. The container stops when that command
+exits. To open a browser on the display directly:
 
 ```bash
 docker run --rm -it \
@@ -147,33 +116,85 @@ docker run --rm -it \
   chromium-launch https://example.com
 ```
 
-### Notes
+**The VNC password.** On first start the entrypoint generates a password,
+writes it to `/home/agent/.vncpass` with mode 0600, and never prints it. Read
+it with:
 
-- Replace `docker` with `podman` if preferred.
-- Mount additional project directories as needed under `/workspace/`.
-- To limit resources: `--cpus 2 --memory 4g`.
+```bash
+docker exec <container> cat /home/agent/.vncpass
+```
 
-## Releases and the published catalog
+To choose the password instead, set `VNC_PASSWORD`. VNC authentication uses
+at most the first eight characters.
 
-Releases are tag-driven and self-contained in `release.yml`. Pushing a `vX.Y.Z` tag builds every cataloged image in dependency order and pushes each one to GHCR as `v{version}`, `v{major}.{minor}`, and `latest`. Each image is built FROM the digest its parent produced in the same run, so a concurrent release cannot move a base image out from under an image that builds on it. Publishing a GitHub release triggers the same build and push. A manual dispatch also publishes, and can skip the base rebuild and stamp one extra tag on the images built on top of it.
+**Platforms.** The GUI image is published for `linux/amd64` only, because
+Chrome for Testing publishes no Linux arm64 build. On an arm64 host,
+`--platform linux/amd64` runs it under emulation.
 
-Pushes to `main` publish nothing. `ci.yml` lints the catalog, runs the tooling tests, and smoke-builds the images whose context directory changed; `release.yml` runs the same build matrix with pushing disabled.
+**Resources.** Limit a container with the runtime's own flags, for example
+`--cpus 2 --memory 4g`.
 
-The pipeline composes `catalog.json` from `catalog.yaml` plus the built image digests and uploads it to S3-compatible object storage:
+## Tags
 
-- `${PREFIX}/catalog.json`: the current catalog, overwritten each release
-- `${PREFIX}/history/<tag>.json`: an immutable copy per release
+Every release publishes each image under three tags:
 
-Consumers use this to discover published images. The contract (top-level `version: 1`, bumped on breaking changes):
+| Tag | Points at |
+| --- | --- |
+| `vX.Y.Z` | that release |
+| `vX.Y` | the newest patch release of `X.Y` |
+| `latest` | the newest build; maintainers can also rebuild it between releases |
+
+Tool versions inside an image change between releases. The
+[image contract](#image-contract) below does not. For a reproducible
+environment, pin `vX.Y.Z`, or pin the digest, which the
+[image catalog](#image-catalog) records for every image of a release.
+
+## Image contract
+
+What stays the same across releases, for building on these images or running
+them from your own orchestration:
+
+- **Working directory**: `/workspace`, writable by `agent`. Mount workspaces
+  as subdirectories of it.
+- **User**: `agent`, UID and GID 1000, passwordless sudo, `HOME=/home/agent`.
+- **Home directory**: the image populates `/home/agent` at build time,
+  including the shell prompt setup, `~/.npm-global`, and in the harness
+  `~/.claude` and `~/.codex`. A volume mounted over `/home/agent` replaces all
+  of it; `/workspace` is the path meant for durable mounts.
+- **Prompt**: the shell prompt shows the `CELLA_HOST` environment variable
+  when it is set, and the container's host name otherwise.
+- **GUI**: the display is `DISPLAY=:0` at `SCREEN_GEOMETRY` (default
+  `1280x800x24`, read at start). noVNC listens on `NOVNC_PORT` (default
+  `6080`); the VNC server itself listens on port 5900 on the container's
+  loopback address only. `VNC_PASSWORD` and `~/.vncpass` behave as described
+  above. `tini` is PID 1.
+
+To build your own image on one of these, start from a pinned tag and return
+to the `agent` user after installing:
+
+```dockerfile
+FROM ghcr.io/latere-ai/sandbox-base:vX.Y.Z
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends <packages> \
+    && rm -rf /var/lib/apt/lists/*
+USER agent
+```
+
+## Image catalog
+
+Each release also produces `catalog.json`, a machine-readable list of the
+images in that release, so an orchestrator can offer them without hard-coding
+names or tags. Latere's hosted sandbox service reads it to build its list of
+images.
 
 ```json
 {
   "version": 1,
-  "source": { "repo": "latere-ai/sandbox-images", "commit": "<sha>", "tag": "v0.0.13" },
+  "source": { "repo": "latere-ai/sandbox-images", "commit": "<sha>", "tag": "v0.0.16" },
   "images": [
     {
       "name": "sandbox-gui",
-      "ref": "ghcr.io/latere-ai/sandbox-gui:v0.0.13",
+      "ref": "ghcr.io/latere-ai/sandbox-gui:v0.0.16",
       "digest": "sha256:...",
       "platforms": ["linux/amd64"],
       "label": "GUI",
@@ -184,27 +205,27 @@ Consumers use this to discover published images. The contract (top-level `versio
 }
 ```
 
-`ref` is always the immutable release tag, never `latest`. `defaults` is optional advisory resource hints.
+- `ref` is always a release tag, never `latest`, and `digest` is the digest
+  that release pushed.
+- `label` and `description` are short texts for a person choosing an image.
+- `defaults` is optional. It holds advisory resource hints (`cpu_milli`,
+  `memory_mb`, and for a display, `width` and `height`) that an orchestrator
+  may apply when it creates a sandbox.
+- `version` is `1`. A change to the shape that breaks a reader raises it.
 
-Publication is configured through repository secrets: `CATALOG_S3_ENDPOINT`, `CATALOG_S3_REGION`, `CATALOG_S3_BUCKET`, `CATALOG_S3_PREFIX`, `CATALOG_S3_ACCESS_KEY`, `CATALOG_S3_SECRET_KEY`. A release fails if they are unset.
+The file is generated from [`catalog.yaml`](catalog.yaml), the list of images
+this repository builds.
 
-## Image contract
+## Contributing
 
-These details are relevant if you are building custom images on top of the sandboxes or integrating them into your own orchestration.
+Building the images locally, testing them, adding an image, updating a pinned
+version, and cutting a release are covered in
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-- **Working directory**: `/workspace` (workspaces are mounted as subdirectories)
-- **User**: non-root `agent` (UID 1000), passwordless sudo, `$HOME=/home/agent`
-- **Prompt**: the shell prompt prefers the `CELLA_HOST` env var (the runtime-injected instance name) and falls back to the kernel hostname when unset
-- **GUI mode**: `sandbox-gui` starts its own XFCE desktop on `DISPLAY=:0` and serves noVNC from port `6080`; override `SCREEN_GEOMETRY` to change the boot-time display size
-
-## Status and stability
-
-The `catalog.json` contract carries a top-level `version`, currently `1`. A breaking change to its shape bumps that number. Image references inside it always point at an immutable release tag, so a consumer pinning from the catalog never follows a moving tag.
-
-The published image tags follow the release tag. `vX.Y.Z` and `vX.Y` are stable once pushed; `latest` moves with every release. Pin `vX.Y.Z` or a digest for reproducible builds.
-
-The image contract above is the surface consumers build against. Tool versions inside an image change freely between releases; the working directory, user, ports, and environment variables do not.
+To report a vulnerability, follow the
+[security policy](https://github.com/latere-ai/.github/blob/main/SECURITY.md)
+rather than opening an issue.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [`LICENSE`](LICENSE).
