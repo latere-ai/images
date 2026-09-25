@@ -27,7 +27,7 @@ images:
     platforms: [linux/amd64]
     from: sandbox-base
     label: GUI
-    description: Base plus Xvfb, x11vnc, noVNC, XFCE, and Chrome for Testing.
+    description: Base plus Xvfb, x11vnc, noVNC, the mutter window manager, and Chrome for Testing.
     defaults:
       cpu_milli: 500
       memory_mb: 1024
